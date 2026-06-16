@@ -454,12 +454,12 @@ def scrape_polyu(page, net_id: str = "", password: str = "") -> list[Job]:
     home_jobs = scrape_job_list(page)
     posts_jobs = scrape_job_posts_page(page)
 
-    # Deduplicate by post_id or URL
+    # Deduplicate by (title, company) — homepage and /job-posts may have different URL formats
     seen = set()
     all_jobs = []
     for job in home_jobs + posts_jobs:
-        key = job.url or job.title
-        if key not in seen:
+        key = (job.title.strip().lower(), job.company.strip().lower())
+        if key not in seen and job.title.strip():
             seen.add(key)
             all_jobs.append(job)
 
