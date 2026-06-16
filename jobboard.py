@@ -149,30 +149,37 @@ def scrape_job_list(page) -> list[Job]:
 
         for card in cards:
             try:
-                # Title: div.text-xl.font-bold
-                title_el = card.query_selector("div.text-xl")
+                # Title: try multiple selectors
+                title_el = card.query_selector("div.text-xl, h3, [class*='title'], a[data-job-post-id]")
                 title = title_el.inner_text().strip() if title_el else ""
+                # Fallback: use the card's text if title not found
+                if not title or len(title) < 2:
+                    full_text = card.inner_text().strip()
+                    lines = [l.strip() for l in full_text.split("\n") if l.strip()]
+                    title = lines[0] if lines else ""
                 if not title or len(title) < 2:
                     continue
 
-                # Company: div.text-sm.font-light
-                company_el = card.query_selector("div.text-sm.font-light")
+                # Company: try multiple selectors
+                company_el = card.query_selector("div.text-sm.font-light, [class*='company'], span.text-sm")
                 company = company_el.inner_text().strip() if company_el else ""
 
-                # Position type: span inside flex-wrap div
-                type_el = card.query_selector("span.rounded-full")
+                # Position type
+                type_el = card.query_selector("span.rounded-full, [class*='badge'], span.bg-")
                 job_type = type_el.inner_text().strip() if type_el else ""
 
-                # URL
+                # URL — use card's own href
                 href = card.get_attribute("href") or ""
-                url = f"https://jobboard-sao.polyu.edu.hk{href}" if href.startswith("/") else href
+                if href and not href.startswith("http"):
+                    href = "/" + href.lstrip("/")
+                url = f"https://jobboard-sao.polyu.edu.hk{href}" if href else ""
 
                 # data-job-post-id
                 post_id = card.get_attribute("data-job-post-id") or ""
 
-                # Closing date (text after "Closing On:")
+                # Deadline from card text
                 card_text = card.inner_text()
-                close_match = re.search(r'Closing\s*(?:On|on)?\s*[:\s]?\s*([\d\-]+)', card_text)
+                close_match = re.search(r'Closing\s*(?:On|on)?\s*[:\s]?\s*([\d\-/]{8,20})', card_text)
                 deadline = close_match.group(1) if close_match else ""
 
                 job = Job(
@@ -212,24 +219,30 @@ def scrape_job_posts_page(page) -> list[Job]:
 
         for card in cards:
             try:
-                title_el = card.query_selector("div.text-xl")
+                title_el = card.query_selector("div.text-xl, h3, [class*='title'], a[data-job-post-id]")
                 title = title_el.inner_text().strip() if title_el else ""
+                if not title or len(title) < 2:
+                    full_text = card.inner_text().strip()
+                    lines = [l.strip() for l in full_text.split("\n") if l.strip()]
+                    title = lines[0] if lines else ""
                 if not title or len(title) < 2:
                     continue
 
-                company_el = card.query_selector("div.text-sm.font-light")
+                company_el = card.query_selector("div.text-sm.font-light, [class*='company'], span.text-sm")
                 company = company_el.inner_text().strip() if company_el else ""
 
-                type_el = card.query_selector("span.rounded-full")
+                type_el = card.query_selector("span.rounded-full, [class*='badge'], span.bg-")
                 job_type = type_el.inner_text().strip() if type_el else ""
 
                 href = card.get_attribute("href") or ""
-                url = f"https://jobboard-sao.polyu.edu.hk{href}" if href.startswith("/") else href
+                if href and not href.startswith("http"):
+                    href = "/" + href.lstrip("/")
+                url = f"https://jobboard-sao.polyu.edu.hk{href}" if href else ""
 
                 post_id = card.get_attribute("data-job-post-id") or ""
 
                 card_text = card.inner_text()
-                close_match = re.search(r'Closing\s*(?:On|on)?\s*[:\s]?\s*([\d\-]+)', card_text)
+                close_match = re.search(r'Closing\s*(?:On|on)?\s*[:\s]?\s*([\d\-/]{8,20})', card_text)
                 deadline = close_match.group(1) if close_match else ""
 
                 job = Job(
@@ -242,7 +255,8 @@ def scrape_job_posts_page(page) -> list[Job]:
                     raw_data={"job_type": job_type, "post_id": post_id}
                 )
                 jobs.append(job)
-            except Exception:
+            except Exception as e:
+                log.debug(f"[PolyU] Card parse error: {e}")
                 continue
 
         log.info(f"[PolyU] Extracted {len(jobs)} jobs from /job-posts")

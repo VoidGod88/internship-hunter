@@ -6,8 +6,12 @@ dist/
 .venv/
 venv/
 
-# SQLite
+# Database files (never commit user data!)
 *.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
 
 # Playwright cookies / session
 cookies/
@@ -33,3 +37,6 @@ Thumbs.db
 # Credentials & user config (never commit real values!)
 .env
 config.yaml
+
+# User documents (never commit PDF/CV)
+*.pdf

@@ -79,7 +79,7 @@ def _pdf_to_text(pdf_path: str) -> str:
     try:
         reader = PdfReader(pdf_path)
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        log.info(f"[CV] Extracted {len(text)} chars from {pdf_path}")
+        log.info(f"[CV] Extracted {len(text)} chars from {Path(pdf_path).name}")
         return text
     except Exception as e:
         log.warning(f"[CV] PDF extraction failed: {e}")

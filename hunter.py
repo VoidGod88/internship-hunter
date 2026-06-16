@@ -181,50 +181,62 @@ def check_cv_match(job: Job, cv_profile: dict) -> tuple[bool, str]:
         )
 
         raw_content = response.choices[0].message.content or ""
-        log.debug(f"[CV Match] Raw ({len(raw_content)} chars): {raw_content[:300]}")
+        log.info(f"[CV Match] Raw LLM response ({len(raw_content)} chars): {raw_content[:500]}")
 
         content = raw_content.strip()
 
-        # ── Step 1: Extract content from markdown code blocks ──
-        # Handle: ```json\n{...}\n```  or  ```\n{...}\n```  or  ```json{...}```
+        # ── Step 1: Strip any markdown code block wrappers ──
+        # Handles: ```json\n...\n```  |  ```\n...\n```  |  ```json{...}```
         if "```" in content:
             parts = content.split("```")
-            # Find the first non-empty part between backticks
             for i in range(1, len(parts), 2):
                 candidate = parts[i].strip()
                 if candidate:
-                    # Remove leading "json" / "JSON" label
+                    # Remove leading "json" / "JSON" label if present
                     candidate = re.sub(r'^(?:json|JSON)\s*', '', candidate).strip()
                     if candidate:
                         content = candidate
                         break
             else:
-                # Fallback: remove all backticks
-                content = content.replace("```", "")
+                # All code-block parts were empty — fall back to stripping all backticks
+                content = content.replace("```", "").strip()
 
-        # ── Step 2: Extract JSON object from text ──
-        # Use non-greedy first, then greedy fallback
+        # ── Step 2: Extract the first {...} JSON object ──
+        # Try non-greedy first (handles most cases); fall back to greedy
         json_match = re.search(r'\{[\s\S]*?\}', content)
         if not json_match:
-            # Try greedy if non-greedy fails (unlikely but safe)
             json_match = re.search(r'\{[\s\S]*\}', content)
         if json_match:
-            content = json_match.group(0)
+            content = json_match.group(0).strip()
 
-        content = content.strip()
-
-        # ── Step 3: Parse JSON ──
+        # ── Step 3: Parse JSON with repair for common issues ──
         try:
             result = json.loads(content)
-        except (json.JSONDecodeError, TypeError) as parse_err:
-            log.warning(f"[CV Match] JSON parse failed: {parse_err} | content[:200]: {content[:200]}")
-            return True, "LLM parse error (accepted)"
+        except (json.JSONDecodeError, TypeError):
+            # Try wrapping in braces if the LLM returned bare key-value lines
+            if not content.startswith("{"):
+                content = "{" + content.rstrip("}") if content.rstrip().endswith("}") else "{" + content + "}"
+                try:
+                    result = json.loads(content)
+                except Exception:
+                    log.warning(f"[CV Match] JSON parse failed, raw: {raw_content[:300]}")
+                    return True, "LLM parse error (accepted)"
+            else:
+                log.warning(f"[CV Match] JSON parse failed, raw: {raw_content[:300]}")
+                return True, "LLM parse error (accepted)"
 
         if not isinstance(result, dict):
             log.warning(f"[CV Match] LLM returned non-dict: {type(result).__name__} | value: {str(result)[:100]}")
             return True, "LLM returned unexpected format (accepted)"
 
-        # ── Step 4: Extract match fields safely ──
+        # ── Step 4: Normalize keys (LLM may add leading whitespace) ──
+        if isinstance(result, dict):
+            result = {k.strip(): v for k, v in result.items()}
+        else:
+            log.warning(f"[CV Match] LLM returned non-dict type: {type(result).__name__}")
+            return True, "LLM returned unexpected format (accepted)"
+
+        # ── Step 5: Extract match fields safely ──
         try:
             match = bool(result.get("overall_match", True))
             reason_parts = []
