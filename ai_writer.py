@@ -2,7 +2,7 @@
 ai_writer.py — LLM-powered cover letter generator.
 Supports DeepSeek, OpenAI, and any OpenAI-compatible API.
 
-Now uses real CV text (from cv_reader) for personalized cover letters.
+Uses real CV text (from cv_reader) for personalization.
 """
 
 import logging
@@ -114,53 +114,47 @@ def _template_cover_letter(job_title: str, company: str, description: str) -> st
     # Try to load CV profile for personalization
     try:
         profile = load_cv_profile(config.cv_pdf_path)
-        name = profile.get("name", "Yip Fung Ming")
-        phone = profile.get("phone", "5169-3118")
-        email = profile.get("email", "yipfm88@gmail.com")
+        name = profile.get("name", "[Your Name]")
+        phone = profile.get("phone", "[Your Phone]")
+        email = profile.get("email", "[Your Email]")
         year = profile.get("year_of_study", "Year 3")
-        github = "github.com/VoidGod88"
+        github = profile.get("github", "[Your GitHub]")
     except Exception:
-        name = "Yip Fung Ming"
-        phone = "5169-3118"
-        email = "yipfm88@gmail.com"
+        name = "[Your Name]"
+        phone = "[Your Phone]"
+        email = "[Your Email]"
         year = "Year 3"
-        github = "github.com/VoidGod88"
+        github = "[Your GitHub]"
 
     desc_lower = (job_title + " " + description).lower()
 
-    if any(k in desc_lower for k in ["agent", "multi-agent", "llm", "gpt", "coze", "langchain", "rag"]):
+    if any(k in desc_lower for k in ["agent", "multi-agent", "llm", "gpt", "prompt", "rag"]):
         ai_para = (
-            "I specialise in agentic AI systems: I built a multi-agent teaching assistant "
-            "with live code execution (Docker-sandboxed FastAPI), "
-            "LLM-based rubric grading, and long-term memory. "
-            "I am proficient with prompt engineering, tool calling, and orchestrating "
-            "reliable multi-step AI workflows."
+            "I have experience building AI-powered applications and working with large language models. "
+            "I am comfortable with prompt engineering, API integration, and orchestrating multi-step AI workflows."
         )
     elif any(k in desc_lower for k in ["machine learning", "deep learning", "data", "ml", "kaggle"]):
         ai_para = (
-            "I have hands-on ML experience from Kaggle competitions and coursework in AI. "
-            "I am comfortable with Python, scikit-learn, data augmentation, and cross-validation."
+            "I have hands-on experience with machine learning projects and data analysis. "
+            "I am comfortable with Python, scikit-learn, and model evaluation workflows."
         )
     else:
         ai_para = (
-            "My most significant project is an AI teaching assistant built with modern "
-            "LLM orchestration, featuring sandboxed code execution and automated grading."
+            "I enjoy building practical software solutions and have experience with modern development workflows. "
+            "I am a fast learner and adaptable to new technologies and team practices."
         )
 
     return (
         f"Dear Hiring Manager,\n\n"
-        f"Re: Application for {job_title} – Summer 2026 Internship\n\n"
+        f"Re: Application for {job_title} – Summer Internship\n\n"
         f"I am writing to express my strong interest in the {job_title} position at {company}. "
-        f"I am {name}, a {year} BSc Computer Science student at The Hong Kong "
-        f"Polytechnic University (PolyU), seeking a summer internship to fulfil my Work-Integrated "
-        f"Education (WIE) requirement (312 hours).\n\n"
+        f"I am {name}, a {year} BSc Computer Science student, seeking a summer internship "
+        f"to fulfil my Work-Integrated Education (WIE) requirement.\n\n"
         f"{ai_para}\n\n"
-        f"I use modern AI-augmented development workflows (vibe coding with Claude Code, Codex, "
-        f"and Cursor), allowing me to iterate fast and deliver working software. "
-        f"As a non-final year student, I am eager to learn and contribute to {company}'s "
-        f"projects over the summer period.\n\n"
+        f"I use modern development tools and AI-augmented workflows to iterate quickly and deliver working software. "
+        f"I am eager to learn and contribute to {company}'s projects over the summer period.\n\n"
         f"I would greatly appreciate the opportunity to discuss how I can contribute to {company}. "
-        f"Please find my CV attached. I am available for Summer 2026 (June–August).\n\n"
+        f"Please find my CV attached.\n\n"
         f"Yours sincerely,\n"
         f"{name}\n"
         f"Tel: {phone} | Email: {email} | GitHub: {github}"

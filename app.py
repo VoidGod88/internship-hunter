@@ -523,7 +523,7 @@ def _write_yaml_config(config_dict):
     yaml_path = Path(__file__).parent / "config.yaml"
 
     data = {
-        "cv_pdf_path": config_dict.get("cv_pdf_path", "CV_YipFungMing.pdf"),
+        "cv_pdf_path": config_dict.get("cv_pdf_path", ""),
         "dry_run": config_dict.get("dry_run", True),
         "max_emails_per_run": int(config_dict.get("max_emails_per_run", 10)),
         "search_keywords": [
@@ -609,7 +609,7 @@ def _save_config_from_ui(
 
         # 2. Write config.yaml (settings)
         _write_yaml_config({
-            "cv_pdf_path": cv_pdf_path or "CV_YipFungMing.pdf",
+            "cv_pdf_path": cv_pdf_path or "",
             "dry_run": dry_run,
             "max_emails_per_run": int(max_emails),
             "search_keywords": search_keywords or "",
@@ -795,7 +795,7 @@ with gr.Blocks(title="WIE Internship Hunter v4") as app:
                     # ── Section 2: CV & File ──
                     gr.Markdown("#### 📄 CV & Files")
                     with gr.Row():
-                        config_cv_path = gr.Textbox(label="CV PDF Path", value=cfg.cv_pdf_path or "CV_YipFungMing.pdf", scale=3)
+                        config_cv_path = gr.Textbox(label="CV PDF Path", value=cfg.cv_pdf_path or "", scale=3)
                         config_cv_upload = gr.File(label="Upload CV PDF", file_types=[".pdf"], type="filepath", scale=1)
 
                     # ── Section 3: Search ──

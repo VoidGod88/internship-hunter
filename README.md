@@ -58,7 +58,7 @@ Scrape Jobs → WIE Filter → CV Match → AI Cover Letter → Track & Send
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/VoidGod88/internship-hunter.git
+git clone https://github.com/<your-username>/internship-hunter.git
 cd internship-hunter
 
 # 2. Create virtual environment & install dependencies
@@ -229,6 +229,3 @@ internship-hunter/
 
 MIT — feel free to use, modify, and share. Good luck with your WIE placement! 🎓
 
----
-
-Built by **[Yip Fung Ming](https://github.com/VoidGod88)** | PolyU CS Year 1 | Summer 2026

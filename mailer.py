@@ -17,6 +17,26 @@ from models import Job
 
 log = logging.getLogger("hunter")
 
+# Try to import CV profile loader
+try:
+    from cv_reader import load_cv_profile
+    _has_cv_reader = True
+except Exception:
+    _has_cv_reader = False
+
+
+def _get_sender_name() -> str:
+    """Get sender name from CV profile, or return placeholder."""
+    if _has_cv_reader and config.cv_pdf_path:
+        try:
+            profile = load_cv_profile(config.cv_pdf_path)
+            name = profile.get("name", "").strip()
+            if name:
+                return name
+        except Exception:
+            pass
+    return "[Your Name]"
+
 
 def send_email(job: Job, cover_letter: str, dry_run: bool = True) -> bool:
     """
@@ -30,10 +50,11 @@ def send_email(job: Job, cover_letter: str, dry_run: bool = True) -> bool:
     sender = config.email
     password = config.email_password
     cv_path = config.cv_pdf_path
+    sender_name = _get_sender_name()
 
     subject = config.email_subject_template.format(
         title=job.title,
-        name="Yip Fung Ming"
+        name=sender_name
     )
 
     if dry_run:
