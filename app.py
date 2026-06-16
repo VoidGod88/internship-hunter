@@ -360,13 +360,12 @@ def _poll_status():
             msg = "\n".join(recent)
 
     jobs_data = _get_jobs_dataframe()
-    cl_data = _get_cover_letter_list()
     history_data = _get_history_dataframe()
     log_text = _get_log_content()
 
     progress_html = _build_progress_bar(status, phase)
 
-    return msg, jobs_data, cl_data, history_data, progress_html, log_text
+    return msg, jobs_data, history_data, progress_html, log_text
 
 
 def _build_progress_bar(status: dict, phase: str) -> str:
@@ -959,7 +958,7 @@ with gr.Blocks(title="WIE Internship Hunter v4") as app:
     poll_timer.tick(
         fn=_poll_status,
         inputs=[],
-        outputs=[status_output, jobs_table, cl_job_selector, history_table, progress_bar, log_output],
+        outputs=[status_output, jobs_table, history_table, progress_bar, log_output],
     )
 
     # CV upload: auto-fill path after upload
