@@ -1,10 +1,10 @@
 # ──────────────────────────────────────────────────────────
-# config.example.yaml — Copy to config.yaml and customize
-# Safe to share publicly (no real credentials here)
+# config.yaml — Settings (all editable in ⚙️ Config tab)
+# No credentials here — see .env for API keys
 # ──────────────────────────────────────────────────────────
 
-# Your CV PDF path (relative to project root or absolute)
-cv_pdf_path: "CV_YipFungMing.pdf"
+# Your CV PDF path (upload via UI or set path here)
+cv_pdf_path: ""
 
 # ⚠️  dry_run: true  = preview only, no real emails sent
 #     dry_run: false = send real emails
@@ -24,7 +24,6 @@ search_keywords:
   - "software engineer intern AI Hong Kong"
   - "AI agent developer intern"
   - "generative AI intern"
-  - "immediate start internship Hong Kong"
   - "summer internship Hong Kong"
   - "IT intern Hong Kong"
   - "computer science intern Hong Kong"
@@ -59,6 +58,6 @@ cover_letter:
 
 # ── Email Settings ──
 email_settings:
-  subject_template: "Summer 2026 Internship Application – {title} | {name} (PolyU CS)"
+  subject_template: "Summer 2026 Internship Application – {title} | {name}"
   attach_cv: true
   delay_seconds: 5         # Random delay between emails (5-10s)

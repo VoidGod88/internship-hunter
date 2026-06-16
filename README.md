@@ -40,7 +40,7 @@ Scrape Jobs → WIE Filter → CV Match → AI Cover Letter → Track & Send
 - **📊 SQLite Database** — Persistent job history, duplicate detection (per company+title+source), cover letter storage, send history
 - **📝 Live Log** — Real-time log viewer in the UI during pipeline execution
 - **🚦 Progress Bar** — Visual pipeline phase indicator (Init → Scraping → Processing → Generating → Done)
-- **🔒 Security First** — `.env` and `config.yaml` are gitignored; credential templates provided
+- **🔒 Security First** — Default `.env` and `config.yaml` are included with empty values; fill in via UI
 
 ---
 
@@ -69,13 +69,10 @@ source .venv/bin/activate   # macOS/Linux
 pip install -r requirements.txt
 python -m playwright install chromium
 
-# 3. Configure credentials
-cp .env.example .env
-cp config.example.yaml config.yaml
-
-# 4. Launch the web UI
+# 3. Launch the web UI
 python app.py
 # Open http://localhost:7861 in your browser
+# Fill in credentials in the ⚙️ Config tab
 ```
 
 ### Windows One-Click Launch
@@ -86,34 +83,34 @@ Double-click `run.bat` — it will auto-create venv, install deps, and launch th
 
 ## ⚙️ Configuration
 
-### `.env` — Credentials (never commit!)
+### `.env` — Credentials
+
+Fill in via the **⚙️ Config** tab in the web UI, or edit directly:
 
 ```env
-EMAIL=your@gmail.com
-EMAIL_PASSWORD=your_gmail_app_password
-LLM_PROVIDER=deepseek          # deepseek / openai / custom
-LLM_API_KEY=sk-xxx
+EMAIL=                    # Your Gmail address
+EMAIL_PASSWORD=           # Gmail App Password
+LLM_PROVIDER=deepseek     # deepseek / openai / custom
+LLM_API_KEY=              # Your API key
 LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-chat
-POLYU_NET_ID=your_netid        # Optional: for PolyU Jobboard
-POLYU_PASSWORD=your_password   # Optional: for PolyU Jobboard
+POLYU_NET_ID=             # Optional: for PolyU Jobboard
+POLYU_PASSWORD=           # Optional: for PolyU Jobboard
 ```
 
 ### `config.yaml` — Settings
 
-All settings can also be edited in the **⚙️ Config** tab in the web UI.
+All settings editable in the **⚙️ Config** tab. Defaults are pre-filled — adjust keywords, scrapers, and filters to your needs.
 
 | Section | Key Settings |
 |---------|-------------|
-| **CV** | `cv_pdf_path` — path to your CV PDF |
+| **CV** | `cv_pdf_path` — upload via UI or set path here |
 | **Search** | `search_keywords` — list of search queries |
 | **Scrapers** | Toggle individual platforms on/off |
 | **WIE Filter** | HK location, CS role, final-year exclusions |
 | **CV Matching** | LLM-based education & skills matching |
 | **Cover Letter** | Language (en/zh), enable/disable |
 | **Email** | Subject template, CV attachment, send delay |
-
-See `config.example.yaml` for the full annotated template.
 
 ---
 
@@ -165,8 +162,8 @@ internship-hunter/
 │   ├── efc.py              # eFinancialCareers
 │   └── manual.py           # Manual company list scraper
 │
-├── config.example.yaml     # Configuration template (safe to share)
-├── .env.example            # Credentials template (safe to share)
+├── .env                    # Credentials template (empty values, fill via UI)
+├── config.yaml             # Settings template (defaults pre-filled)
 ├── requirements.txt        # Python dependencies
 ├── run.bat                 # Windows one-click launcher
 └── README.md
@@ -203,10 +200,10 @@ internship-hunter/
 
 ## 🔒 Security
 
-- `.env` and `config.yaml` are **gitignored** — never commit credentials
+- `.env` and `config.yaml` come with **empty credentials** — fill in via the ⚙️ Config tab or edit directly
 - Use **Gmail App Passwords** (not your main password) — [setup guide](https://support.google.com/accounts/answer/185833)
 - Enable **2FA** on your Google account
-- `config.example.yaml` and `.env.example` are templates safe to share publicly
+- Don't commit your filled-in `.env` if you add real credentials
 - Playwright cookies are stored locally in `cookies/` (gitignored)
 
 ---
