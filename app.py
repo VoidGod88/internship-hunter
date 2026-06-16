@@ -863,7 +863,7 @@ with gr.Blocks(title="WIE Internship Hunter v4") as app:
                         config_llm_base = gr.Textbox(label="LLM Base URL", value=cfg.llm_base_url)
                         config_llm_model = gr.Textbox(label="LLM Model", value=cfg.llm_model)
                     with gr.Row():
-                        config_polyu_id = gr.Textbox(label="PolyU NetID", value=cfg.polyu_net_id or "")
+                        config_polyu_id = gr.Textbox(label="PolyU NetID", value=cfg.polyu_net_id or "", type="password")
                         config_polyu_pw = gr.Textbox(label="PolyU Password", value=cfg.polyu_password or "", type="password")
 
                     gr.Markdown("---")

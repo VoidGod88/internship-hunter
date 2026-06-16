@@ -377,7 +377,7 @@ def run_scrapers(
                 progress_callback(f"Scraping PolyU Jobboard...")
             try:
                 page = scrapers.base.BaseScraper.init_page(browser)
-                polyu_jobs = jobboard.scrape_polyu(page, keywords=search_keywords)
+                polyu_jobs = jobboard.scrape_polyu(page, keywords=keywords)
                 all_jobs += polyu_jobs
                 log.info(f"PolyU: {len(polyu_jobs)} jobs")
             except Exception as e:
