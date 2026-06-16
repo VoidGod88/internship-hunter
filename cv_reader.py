@@ -17,6 +17,7 @@ from typing import Optional
 
 from openai import OpenAI
 from config import config
+import database as db
 
 log = logging.getLogger("hunter")
 
@@ -57,6 +58,27 @@ Rules:
 - For year_of_study: infer from education section.
 - For is_final_year: true only if explicitly final year or Year 4/Honours Year.
 - Preserve the original language (English/Chinese) of project descriptions.
+
+CV TEXT:
+"""
+
+# ── Prompt sent to LLM for keyword extraction ──
+KEYWORDS_EXTRACT_PROMPT = """You are helping to extract search keywords from a CV for job hunting.
+Analyze the CV text and extract keywords that can be used to search for internship jobs.
+
+Return ONLY a valid JSON object with the following structure:
+{
+  "technical": ["keyword1", "keyword2", ...],
+  "domains": ["keyword1", "keyword2", ...],
+  "roles": ["keyword1", "keyword2", ...]
+}
+
+Rules:
+- Each category should have 3-8 keywords.
+- Keywords should be specific enough for job search (e.g., "LLM" not just "AI").
+- Include variations: "intern", "internship", "NLP", "machine learning", etc.
+- Use English keywords.
+- Return ONLY the JSON, no markdown, no explanation.
 
 CV TEXT:
 """
@@ -279,3 +301,118 @@ def format_cv_for_prompt(pdf_path: str) -> str:
         parts.append(f"\n--- CV Text (excerpt) ---\n{raw[:1500]}")
 
     return "\n".join(parts)
+
+
+# ── CV Keyword Extraction ──
+
+def extract_keywords_from_cv(cv_text: str, config) -> Optional[dict]:
+    """
+    Send CV text to LLM and return structured keywords by category.
+    Returns dict: {"technical": [...], "domains": [...], "roles": [...]}
+    """
+    if not config.llm_api_key:
+        log.warning("[CV] No LLM API key, skipping keyword extraction")
+        return None
+
+    if not cv_text.strip():
+        log.warning("[CV] Empty CV text, skipping keyword extraction")
+        return None
+
+    try:
+        client = OpenAI(
+            api_key=config.llm_api_key,
+            base_url=config.llm_base_url,
+        )
+
+        truncated = cv_text[:6000]
+
+        response = client.chat.completions.create(
+            model=config.llm_model,
+            messages=[
+                {"role": "system", "content": "You are a keyword extraction assistant. Return only valid JSON."},
+                {"role": "user", "content": KEYWORDS_EXTRACT_PROMPT + "\n\n" + truncated},
+            ],
+            temperature=0.3,
+            max_tokens=1000,
+        )
+
+        content = response.choices[0].message.content.strip()
+        # Strip markdown code blocks if present
+        if content.startswith("```"):
+            parts_md = content.split("```")
+            content = parts_md[1] if len(parts_md) > 1 else content
+            if content.startswith("json"):
+                content = content[4:]
+        content = content.strip()
+
+        keywords = json.loads(content)
+
+        # Validate structure
+        if not isinstance(keywords, dict):
+            log.warning(f"[CV] Keywords extraction returned non-dict: {type(keywords)}")
+            return None
+
+        # Ensure all expected keys exist
+        for key in ["technical", "domains", "roles"]:
+            if key not in keywords:
+                keywords[key] = []
+
+        log.info(
+            f"[CV] Keywords extracted: "
+            f"technical={len(keywords.get('technical', []))}, "
+            f"domains={len(keywords.get('domains', []))}, "
+            f"roles={len(keywords.get('roles', []))}"
+        )
+        return keywords
+
+    except json.JSONDecodeError as e:
+        log.warning(f"[CV] LLM returned invalid JSON for keywords: {e}")
+        return None
+    except Exception as e:
+        log.warning(f"[CV] Keyword extraction failed: {e}")
+        return None
+
+
+def get_cv_keywords(pdf_path: str, config, force_reload: bool = False) -> dict:
+    """
+    Load cached CV keywords or extract fresh ones.
+    Uses SQLite cache keyed by PDF file mtime hash.
+    Returns dict: {"technical": [...], "domains": [...], "roles": [...]}
+    """
+    if not pdf_path or not config.llm_api_key:
+        return {"technical": [], "domains": [], "roles": []}
+
+    path = Path(pdf_path)
+    if not path.is_absolute():
+        path = Path(__file__).parent / pdf_path
+    if not path.exists():
+        log.warning(f"[CV] File not found: {path}")
+        return {"technical": [], "domains": [], "roles": []}
+
+    pdf_hash = _get_cache_key(str(path))
+
+    # Check SQLite cache first
+    if not force_reload:
+        cached = db.get_cached_keywords(pdf_hash)
+        if cached:
+            log.info("[CV] Using cached keywords from SQLite")
+            return cached
+
+    # Extract fresh
+    cv_text = _pdf_to_text(str(path))
+    if not cv_text:
+        return {"technical": [], "domains": [], "roles": []}
+
+    keywords = extract_keywords_from_cv(cv_text, config)
+    if not keywords:
+        # Fallback: generate keywords from profile skills
+        profile = load_cv_profile(str(path))
+        keywords = {
+            "technical": profile.get("skills", [])[:8],
+            "domains": profile.get("ai_ml_skills", [])[:8],
+            "roles": ["intern", "internship", "developer", "engineer"],
+        }
+
+    # Cache to SQLite
+    db.cache_keywords(pdf_hash, str(path), keywords)
+    return keywords

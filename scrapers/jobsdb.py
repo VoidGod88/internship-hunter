@@ -1,6 +1,8 @@
 """
 scrapers/jobsdb.py — JobsDB HK scraper using Playwright.
+Supports: one keyword per search (decision A), infinite pagination (decision C).
 """
+
 import time
 import random
 import logging
@@ -9,7 +11,6 @@ from .base import BaseScraper
 
 log = logging.getLogger("hunter")
 
-# Multiple card selectors to try (in order of reliability)
 CARD_SELECTORS = [
     "[data-automation='job-list-item']",
     "article",
@@ -33,104 +34,163 @@ COMPANY_SELECTORS = [
 
 
 def _query_selector_all_multi(page, selectors: list[str]) -> list:
-    """
-    Try multiple selectors, return the first non-empty result.
-    Playwright's query_selector_all only accepts a single string selector.
-    """
     for sel in selectors:
         try:
             elements = page.query_selector_all(sel)
             if elements:
-                log.debug(f"[JobsDB] Found {len(elements)} cards with selector: {sel}")
+                log.debug("[JobsDB] Found %d cards with selector: %s", len(elements), sel)
                 return elements
         except Exception as e:
-            log.debug(f"[JobsDB] Selector '{sel}' failed: {e}")
+            log.debug("[JobsDB] Selector '%s' failed: %s", sel, e)
             continue
     return []
 
 
-def scrape_jobsdb(page, keywords: list[str], max_per_kw: int = 10) -> list:
+def _has_next_page(page) -> bool:
+    """Check if a 'Next' or 'Load more' button exists."""
+    try:
+        next_btn = page.query_selector(
+            "a[aria-label='Next'], button[aria-label='Next'], "
+            "a[aria-label='下一页'], [class*='next']"
+        )
+        return bool(next_btn and next_btn.is_visible())
+    except Exception:
+        return False
+
+
+def _go_to_next_page(page) -> bool:
+    """Click the Next button. Returns True if succeeded."""
+    try:
+        next_btn = page.query_selector(
+            "a[aria-label='Next'], button[aria-label='Next'], "
+            "a[aria-label='下一页'], [class*='next']"
+        )
+        if next_btn and next_btn.is_enabled():
+            next_btn.click()
+            page.wait_for_timeout(3000)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0) -> list:
     """
     Scrape JobsDB HK for internship jobs.
-    URL format: https://hk.jobsdb.com/job-search?q={kw}&l=Hong+Kong
+    - One search per keyword (decision A).
+    - Paginate until no next page or max_pages reached (decision C: 0 = unlimited).
     """
     jobs = []
-    log.info("[JobsDB] Starting...")
+    log.info("[JobsDB] Starting (keywords=%d)...", len(keywords))
 
-    for kw in keywords[:3]:
-        log.info(f"  Searching: {kw}")
+    for kw in keywords:
+        log.info("  Searching: %s", kw)
         encoded_kw = urllib.parse.quote(kw)
-        url = f"https://hk.jobsdb.com/job-search?q={encoded_kw}&l=Hong+Kong"
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            page.wait_for_timeout(5000)
+        base_url = f"https://hk.jobsdb.com/job-search?q={encoded_kw}&l=Hong+Kong"
+        page_num = 0
 
-            # Dismiss cookie/privacy popup
+        while True:
+            url = base_url
+            if page_num > 0:
+                url += f"&page={page_num + 1}"
+
             try:
-                page.click("button:has-text('Accept'), button:has-text('同意')", timeout=3000)
-            except Exception:
-                pass
+                page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+                page.wait_for_timeout(5000)
 
-            page.keyboard.press("End")
-            page.wait_for_timeout(3000)
-
-            # Use multi-selector helper
-            cards = _query_selector_all_multi(page, CARD_SELECTORS)
-            log.info(f"  Found {len(cards)} cards")
-
-            for card in cards[:max_per_kw]:
+                # Dismiss cookie/privacy popup
                 try:
-                    # Try to get title from card
-                    title = ""
-                    title_el = None
-                    for sel in TITLE_SELECTORS:
-                        title_el = card.query_selector(sel)
-                        if title_el:
-                            title = title_el.inner_text().strip()
-                            break
+                    page.click("button:has-text('Accept'), button:has-text('同意')", timeout=3000)
+                except Exception:
+                    pass
 
-                    # Fallback: use card's own text
-                    if not title or len(title) < 3:
-                        full_text = card.inner_text().strip()
-                        lines = [l.strip() for l in full_text.split("\n") if l.strip()]
-                        title = lines[0][:120] if lines else ""
+                # Scroll to load all cards
+                page.keyboard.press("End")
+                page.wait_for_timeout(3000)
 
-                    if not title or len(title) < 3:
+                cards = _query_selector_all_multi(page, CARD_SELECTORS)
+                log.info("  Page %d: %d cards", page_num + 1, len(cards))
+
+                if not cards:
+                    log.info("  No cards on page %d, stopping pagination.", page_num + 1)
+                    break
+
+                for card in cards:
+                    try:
+                        # Try to get title from card
+                        title = ""
+                        title_el = None
+                        for sel in TITLE_SELECTORS:
+                            title_el = card.query_selector(sel)
+                            if title_el:
+                                title = title_el.inner_text().strip()
+                                break
+
+                        # Fallback: use card's own text
+                        if not title or len(title) < 3:
+                            full_text = card.inner_text().strip()
+                            lines = [l.strip() for l in full_text.split("\n") if l.strip()]
+                            title = lines[0][:120] if lines else ""
+
+                        if not title or len(title) < 3:
+                            continue
+
+                        # Company
+                        company = ""
+                        for sel in COMPANY_SELECTORS:
+                            company_el = card.query_selector(sel)
+                            if company_el:
+                                company = company_el.inner_text().strip()
+                                break
+
+                        # URL
+                        href = ""
+                        link_el = card.query_selector("a[href*='/job/']")
+                        if link_el:
+                            href = link_el.get_attribute("href") or ""
+                        else:
+                            href = card.get_attribute("href") or ""
+
+                        if href and not href.startswith("http"):
+                            href = "https://hk.jobsdb.com" + href
+                        job_url = href or ""
+
+                        if title and len(title) > 3:
+                            jobs.append(BaseScraper.make_job(
+                                title, company, "Hong Kong", job_url, "JobsDB"
+                            ))
+
+                    except Exception as e:
+                        log.debug("[JobsDB] Card parse error: %s", e)
                         continue
 
-                    # Company
-                    company = ""
-                    for sel in COMPANY_SELECTORS:
-                        company_el = card.query_selector(sel)
-                        if company_el:
-                            company = company_el.inner_text().strip()
-                            break
+                # Pagination check
+                if max_pages > 0 and page_num + 1 >= max_pages:
+                    log.info("  Reached max_pages=%d, stopping.", max_pages)
+                    break
 
-                    # URL
-                    href = ""
-                    link_el = card.query_selector("a[href*='/job/']")
-                    if link_el:
-                        href = link_el.get_attribute("href") or ""
-                    else:
-                        # Card itself might be an <a>
-                        href = card.get_attribute("href") or ""
+                # Try clicking "Next" button
+                if not _go_to_next_page(page):
+                    log.info("  No next page, stopping.")
+                    break
 
-                    if href and not href.startswith("http"):
-                        href = "https://hk.jobsdb.com" + href
-                    job_url = href or ""
+                page_num += 1
+                time.sleep(random.uniform(2, 4))
 
-                    if title and len(title) > 3:
-                        jobs.append(BaseScraper.make_job(
-                            title, company, "Hong Kong", job_url, "JobsDB"
-                        ))
+            except Exception as e:
+                log.warning("  JobsDB [%s] page %d failed: %s", kw, page_num + 1, e)
+                break
 
-                except Exception as e:
-                    log.debug(f"[JobsDB] Card parse error: {e}")
-                    continue
-
-        except Exception as e:
-            log.warning(f"  JobsDB [{kw}] Failed: {e}")
         time.sleep(random.uniform(2, 4))
 
-    log.info(f"[JobsDB] Total: {len(jobs)}")
-    return jobs
+    # Deduplicate by (title, company)
+    seen = set()
+    unique = []
+    for j in jobs:
+        key = (j.title.strip().lower(), j.company.strip().lower())
+        if key not in seen and j.title.strip():
+            seen.add(key)
+            unique.append(j)
+
+    log.info("[JobsDB] Total: %d (deduplicated from %d)", len(unique), len(jobs))
+    return unique

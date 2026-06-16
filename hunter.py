@@ -32,7 +32,7 @@ import scrapers
 import jobboard
 from ai_writer import generate_cover_letter, generate_batch
 from mailer import send_email
-from cv_reader import load_cv_profile, format_cv_for_prompt
+from cv_reader import load_cv_profile, format_cv_for_prompt, get_cv_keywords
 
 log = logging.getLogger("hunter")
 
@@ -595,6 +595,27 @@ def run_full_pipeline(
     """Run the full pipeline: scrape -> process -> generate -> send."""
     if not keywords:
         keywords = config.search_keywords
+
+    # ── Step 0: Extract CV keywords (cached) ──
+    cv_kw = []
+    if config.cv_pdf_path and config.llm_api_key:
+        try:
+            cv_keywords_dict = get_cv_keywords(config.cv_pdf_path, config)
+            # Flatten: take top 10 from each category
+            for cat in ["technical", "domains", "roles"]:
+                cv_kw.extend(cv_keywords_dict.get(cat, [])[:10])
+            # Remove duplicates while preserving order
+            seen = set()
+            cv_kw = [x for x in cv_kw if not (x in seen or seen.add(x))]
+            log.info(f"[Pipeline] CV keywords extracted: {len(cv_kw)} total")
+        except Exception as e:
+            log.warning(f"[Pipeline] CV keyword extraction failed: {e}")
+
+    # Merge with config keywords
+    config_kw = keywords or []
+    merged = config_kw + [kw for kw in cv_kw if kw not in config_kw]
+    keywords = merged
+    log.info(f"[Pipeline] Final keywords ({len(keywords)}): {keywords[:10]}")
 
     # Step 1: Scrape
     if progress_callback:

@@ -293,18 +293,57 @@ def scrape_job_list(page) -> list[Job]:
     return jobs
 
 
-def scrape_job_posts_page(page) -> list[Job]:
-    """Scrape from the full /job-posts listing page (View All)."""
+def _polyu_has_next_page(page) -> bool:
+    """Check if PolyU /job-posts has a next-page button."""
+    try:
+        # Try multiple selectors for pagination
+        btn = page.query_selector(
+            "a[aria-label='Next'], button[aria-label='Next'], "
+            "a:has-text('Next'), button:has-text('Next'), "
+            "[class*='next'], [class*='pagination'] a:last-child"
+        )
+        if btn and btn.is_visible():
+            return True
+        # Fallback: check if URL changed (some sites auto-increment)
+        return False
+    except Exception:
+        return False
+
+
+def _polyu_go_to_next_page(page) -> bool:
+    """Click next-page button. Returns True if succeeded."""
+    try:
+        btn = page.query_selector(
+            "a[aria-label='Next'], button[aria-label='Next'], "
+            "a:has-text('Next'), button:has-text('Next')"
+        )
+        if btn and btn.is_enabled():
+            btn.click()
+            page.wait_for_timeout(3000)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def scrape_job_posts_page(page, page_num: int = 0) -> list[Job]:
+    """Scrape from the full /job-posts listing page — with pagination support."""
     jobs = []
-    log.info("[PolyU] Scraping /job-posts page...")
+    log.info("[PolyU] Scraping /job-posts page %d...", page_num + 1)
 
     try:
-        page.goto(JOB_POSTS_URL, wait_until="networkidle", timeout=30_000)
+        url = JOB_POSTS_URL
+        if page_num > 0:
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}page={page_num + 1}"
+        page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_timeout(3000)
 
-        # Same card structure
         cards = page.query_selector_all("a[data-job-post-id]")
-        log.info(f"[PolyU] Found {len(cards)} job cards on /job-posts")
+        log.info(f"[PolyU] Found {len(cards)} job cards on /job-posts page {page_num + 1}")
+
+        if not cards:
+            return jobs
 
         for card in cards:
             try:
@@ -348,10 +387,10 @@ def scrape_job_posts_page(page) -> list[Job]:
                 log.warning(f"[PolyU] Card parse error: {e}")
                 continue
 
-        log.info(f"[PolyU] Extracted {len(jobs)} jobs from /job-posts")
+        log.info(f"[PolyU] Extracted {len(jobs)} jobs from /job-posts page {page_num + 1}")
 
     except Exception as e:
-        log.error(f"[PolyU] /job-posts scrape error: {e}")
+        log.error(f"[PolyU] /job-posts page {page_num + 1} scrape error: {e}")
 
     return jobs
 
@@ -464,9 +503,26 @@ def scrape_polyu(page, net_id: str = "", password: str = "", keywords: list[str]
         log.warning("[PolyU] Login failed, skipping PolyU scraper")
         return []
 
-    # Scrape both homepage and full listing
-    home_jobs = scrape_job_list(page)
-    posts_jobs = scrape_job_posts_page(page)
+    # Scrape /job-posts with pagination (crawl until no next page)
+    posts_jobs = []
+    page_num = 0
+    while True:
+        page_jobs = scrape_job_posts_page(page, page_num)
+        if not page_jobs:
+            log.info("[PolyU] No jobs on page %d, stopping pagination.", page_num + 1)
+            break
+        posts_jobs.extend(page_jobs)
+
+        if not _polyu_has_next_page(page):
+            log.info("[PolyU] No next page detected, stopping.")
+            break
+
+        if not _polyu_go_to_next_page(page):
+            log.info("[PolyU] Could not go to next page, stopping.")
+            break
+
+        page_num += 1
+        time.sleep(random.uniform(2, 4))
 
     # Deduplicate by (title, company)
     seen = set()

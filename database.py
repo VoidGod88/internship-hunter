@@ -72,6 +72,15 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
         CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
         CREATE INDEX IF NOT EXISTS idx_cover_letters_job_id ON cover_letters(job_id);
+
+        CREATE TABLE IF NOT EXISTS cv_keywords (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pdf_path TEXT NOT NULL,
+            pdf_hash TEXT NOT NULL,
+            keywords_json TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(pdf_hash)
+        );
     """)
     
     # Migration: add extra_docs column if missing
@@ -276,6 +285,36 @@ def get_application_history() -> list[dict]:
 def update_job_status(job_id: int, status: str):
     conn = get_db()
     conn.execute("UPDATE jobs SET status=? WHERE id=?", (status, job_id))
+    conn.commit()
+    conn.close()
+
+
+def get_cached_keywords(pdf_hash: str) -> Optional[dict]:
+    """Get cached CV keywords by pdf_hash. Returns dict or None."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT keywords_json FROM cv_keywords WHERE pdf_hash=?", (pdf_hash,)
+    ).fetchone()
+    conn.close()
+    if row:
+        import json
+        return json.loads(row["keywords_json"])
+    return None
+
+
+def cache_keywords(pdf_hash: str, pdf_path: str, keywords_dict: dict):
+    """Cache CV keywords (upsert)."""
+    import json
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO cv_keywords (pdf_path, pdf_hash, keywords_json)
+           VALUES (?, ?, ?)
+           ON CONFLICT(pdf_hash) DO UPDATE SET
+             pdf_path=excluded.pdf_path,
+             keywords_json=excluded.keywords_json,
+             created_at=datetime('now','localtime')""",
+        (pdf_path, pdf_hash, json.dumps(keywords_dict, ensure_ascii=False))
+    )
     conn.commit()
     conn.close()
 
