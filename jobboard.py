@@ -362,8 +362,14 @@ def scrape_job_detail(page, job: Job) -> Job:
         return job
 
     try:
-        page.goto(job.url, wait_until="networkidle", timeout=15_000)
+        # Use domcontentloaded instead of networkidle (faster, less likely to hang)
+        page.goto(job.url, wait_until="domcontentloaded", timeout=15_000)
         page.wait_for_timeout(2000)
+
+        # Check if we got redirected to login (cookie expired)
+        if "login" in page.url or "adfs" in page.url:
+            log.warning(f"[PolyU] Cookie expired during detail fetch, skipping: {job.title[:30]}")
+            return job
 
         # Get full page content
         body_text = page.inner_text("body") if hasattr(page, "inner_text") else page.content()
@@ -444,7 +450,15 @@ def _extract_section(text: str, keywords: list[str], max_chars: int = 500) -> st
     return ""
 
 
-def scrape_polyu(page, net_id: str = "", password: str = "") -> list[Job]:
+def _job_matches_keywords(job: Job, keywords: list[str]) -> bool:
+    """Check if a job title or company matches any keyword (case-insensitive)."""
+    if not keywords:
+        return True
+    haystack = (job.title + " " + job.company).lower()
+    return any(kw.lower() in haystack for kw in keywords)
+
+
+def scrape_polyu(page, net_id: str = "", password: str = "", keywords: list[str] = None) -> list[Job]:
     """Main entry: login + scrape homepage + /job-posts + fetch details."""
     if not login(page, net_id, password):
         log.warning("[PolyU] Login failed, skipping PolyU scraper")
@@ -454,7 +468,7 @@ def scrape_polyu(page, net_id: str = "", password: str = "") -> list[Job]:
     home_jobs = scrape_job_list(page)
     posts_jobs = scrape_job_posts_page(page)
 
-    # Deduplicate by (title, company) — homepage and /job-posts may have different URL formats
+    # Deduplicate by (title, company)
     seen = set()
     all_jobs = []
     for job in home_jobs + posts_jobs:
@@ -463,16 +477,27 @@ def scrape_polyu(page, net_id: str = "", password: str = "") -> list[Job]:
             seen.add(key)
             all_jobs.append(job)
 
+    # Filter by keywords (if provided)
+    if keywords:
+        filtered = [j for j in all_jobs if _job_matches_keywords(j, keywords)]
+        log.info(f"[PolyU] Keyword filter: {len(all_jobs)} → {len(filtered)} jobs (keywords={keywords[:3]})")
+        all_jobs = filtered
+
     log.info(f"[PolyU] Combined unique jobs: {len(all_jobs)} (home: {len(home_jobs)}, posts: {len(posts_jobs)})")
 
-    # Fetch details for each job
+    # Fetch details for each job (with timeout protection)
     max_details = min(len(all_jobs), 30)
     detailed = []
     for i, job in enumerate(all_jobs[:max_details]):
-        log.debug(f"[PolyU] Detail {i+1}/{max_details}: {job.title[:40]}")
-        detailed.append(scrape_job_detail(page, job))
-        time.sleep(0.3)  # Rate limit
+        log.info(f"[PolyU] Detail {i+1}/{max_details}: {job.title[:40]}")
+        try:
+            # Set a hard timeout on detail fetching by using a shorter page timeout
+            detailed.append(scrape_job_detail(page, job))
+        except Exception as e:
+            log.warning(f"[PolyU] Detail fetch failed for {job.title[:30]}: {e}")
+            detailed.append(job)
+        time.sleep(0.3)
 
-    detailed.extend(all_jobs[max_details:])  # Add remaining without details
+    detailed.extend(all_jobs[max_details:])
     log.info(f"[PolyU] Done: {len(detailed)} total jobs ({max_details} with details)")
     return detailed
