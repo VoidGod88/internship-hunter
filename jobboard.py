@@ -132,48 +132,79 @@ def _accept_terms_and_conditions(page) -> None:
     """
     Detect and accept the Terms & Conditions modal that appears after login.
     Modal has two checkboxes and a 'Continue to access PolyU Job Board' button.
+
+    Strategy:
+    1. Wait for possible modal to appear (up to 5s)
+    2. Look for checkbox input elements
+    3. Use page.locator() (auto-wait, visible-only) instead of query_selector
+    4. Force-click if normal click fails
     """
     try:
-        page.wait_for_timeout(2000)
+        # Wait a bit for modal animation
+        page.wait_for_timeout(2500)
 
-        # Check if T&C modal is present (look for the heading or checkboxes)
-        modal = page.query_selector(
-            "text='Terms and Conditions', "
-            "text='I have read and agree to the above Terms and Conditions'"
-        )
-        if not modal:
-            # Also try checking for checkbox elements
-            has_checkboxes = page.query_selector_all("input[type='checkbox']")
-            if not has_checkboxes:
-                log.info("[PolyU] No T&C modal detected, proceeding...")
-                return
+        # Try to detect modal by looking for visible checkboxes
+        checkboxes = page.locator("input[type='checkbox']").all()
+        if not checkboxes:
+            log.info("[PolyU] No T&C modal detected, proceeding...")
+            return
 
-        log.info("[PolyU] T&C modal detected — accepting terms...")
+        # Check if any checkbox is visible
+        visible_checkboxes = [cb for cb in checkboxes if cb.is_visible()]
+        if not visible_checkboxes:
+            log.info("[PolyU] Checkboxes found but not visible (modal not shown), proceeding...")
+            return
 
-        # Check both checkboxes
-        for _ in range(2):
-            unchecked = page.query_selector("input[type='checkbox']:not(:checked)")
-            if unchecked:
-                unchecked.click()
-                page.wait_for_timeout(500)
-            else:
-                break
+        log.info(f"[PolyU] T&C modal detected ({len(visible_checkboxes)} checkboxes) — accepting terms...")
+
+        # Check all visible checkboxes using force click (bypasses visibility check if needed)
+        for cb in visible_checkboxes:
+            try:
+                cb.click(force=True)
+                page.wait_for_timeout(300)
+            except Exception:
+                # Fallback: evaluate click via JS
+                try:
+                    cb.evaluate("el => el.click()")
+                except Exception:
+                    pass
+
+        page.wait_for_timeout(500)
 
         # Click "Continue to access PolyU Job Board" button
-        continue_btn = page.query_selector(
-            "button:has-text('Continue to access'), "
-            "button:has-text('Continue'), "
-            "[class*='continue']"
-        )
-        if continue_btn:
-            continue_btn.click()
-            log.info("[PolyU] Clicked Continue button on T&C modal")
-            page.wait_for_timeout(3000)
-        else:
-            log.warning("[PolyU] Could not find Continue button on T&C modal")
-            # Fallback: press Enter
+        # Try multiple strategies
+        clicked = False
+
+        # Strategy 1: locator with text match (auto-waits for visible)
+        try:
+            btn = page.locator("button").filter(has_text="Continue").first
+            if btn.is_visible(timeout=3000):
+                btn.click()
+                clicked = True
+                log.info("[PolyU] Clicked Continue (strategy 1: locator filter)")
+        except Exception:
+            pass
+
+        # Strategy 2: query_selector + evaluate (bypass visibility)
+        if not clicked:
+            try:
+                btn_el = page.query_selector("button[type='submit'], button:has-text('Continue')")
+                if btn_el:
+                    btn_el.evaluate("el => el.click()")
+                    clicked = True
+                    log.info("[PolyU] Clicked Continue (strategy 2: JS evaluate)")
+            except Exception:
+                pass
+
+        # Strategy 3: press Enter
+        if not clicked:
+            log.warning("[PolyU] Could not click Continue button, trying Enter key")
             page.keyboard.press("Enter")
             page.wait_for_timeout(2000)
+
+        # Wait for modal to disappear
+        page.wait_for_timeout(3000)
+        log.info("[PolyU] T&C modal handled")
 
     except Exception as e:
         log.warning(f"[PolyU] T&C handling error: {e}")
