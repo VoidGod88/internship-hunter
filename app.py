@@ -34,6 +34,83 @@ from models import Job
 from ai_writer import generate_cover_letter
 from mailer import send_email
 
+# ── Config auto-generation (safeguard against missing files) ──
+_ENV_TEMPLATE = """# Email credentials (for sending applications)
+EMAIL=
+EMAIL_PASSWORD=
+
+# LLM provider for cover letter generation
+LLM_PROVIDER=deepseek
+LLM_API_KEY=
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-chat
+
+# PolyU Jobboard (optional, leave blank if not using)
+POLYU_NET_ID=
+POLYU_PASSWORD=
+"""
+
+_CONFIG_TEMPLATE = """# WIE Internship Hunter v4 — User Configuration
+# All values can also be edited in the web UI (⚙️ Config tab)
+
+cv_pdf_path: ""
+
+search_keywords:
+  - "summer internship 2026 computer science"
+  - "software engineer intern summer 2026"
+  - "AI internship summer 2026"
+  - "data science intern summer 2026"
+
+scrapers:
+  polyu: true
+  linkedin: true
+  jobsdb: true
+  indeed: true
+  efc: true
+  manual: true
+
+wie:
+  require_hk_location: true
+  require_cs_role: true
+  exclude_final_year: true
+  exclude_phd: true
+
+cv_match:
+  enabled: true
+  skills_weight: 0.4
+  education_weight: 0.3
+  experience_weight: 0.3
+
+cover_letter:
+  enabled: true
+  language: "en"
+
+email:
+  subject_template: "Application for {job_title} – Summer Internship"
+  attach_cv: true
+  dry_run: true
+  max_emails_per_run: 10
+  send_delay_seconds: 5
+"""
+
+
+def _ensure_config_files():
+    """Create .env and config.yaml from templates if they don't exist.
+    This protects users who clone the repo — gitignored files won't be present.
+    """
+    project_dir = Path(__file__).parent
+    env_path = project_dir / ".env"
+    cfg_path = project_dir / "config.yaml"
+
+    if not env_path.exists():
+        env_path.write_text(_ENV_TEMPLATE, encoding="utf-8")
+        print(f"[Setup] Created default .env at {env_path}")
+
+    if not cfg_path.exists():
+        cfg_path.write_text(_CONFIG_TEMPLATE, encoding="utf-8")
+        print(f"[Setup] Created default config.yaml at {cfg_path}")
+
+
 log = logging.getLogger("hunter")
 logging.basicConfig(level=logging.INFO)
 
@@ -965,6 +1042,9 @@ if __name__ == "__main__":
             pass
 
     _free_port(PORT)
+
+    # ---- Auto-generate config files if missing ----
+    _ensure_config_files()
 
     print("=" * 60)
     print("WIE Internship Hunter v4 — Gradio Web UI")

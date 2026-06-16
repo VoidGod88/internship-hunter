@@ -29,3 +29,7 @@ debug_snapshots/
 # OS
 .DS_Store
 Thumbs.db
+
+# Credentials & user config (never commit real values!)
+.env
+config.yaml
