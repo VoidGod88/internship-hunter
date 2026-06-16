@@ -117,11 +117,66 @@ def login(page, net_id: str = "", password: str = "") -> bool:
 
         log.info("[PolyU] Login successful")
         _save_cookies(page.context)
+
+        # ── Handle Terms & Conditions modal (if present) ──
+        _accept_terms_and_conditions(page)
+
         return True
 
     except Exception as e:
         log.error(f"[PolyU] Login error: {e}")
         return False
+
+
+def _accept_terms_and_conditions(page) -> None:
+    """
+    Detect and accept the Terms & Conditions modal that appears after login.
+    Modal has two checkboxes and a 'Continue to access PolyU Job Board' button.
+    """
+    try:
+        page.wait_for_timeout(2000)
+
+        # Check if T&C modal is present (look for the heading or checkboxes)
+        modal = page.query_selector(
+            "text='Terms and Conditions', "
+            "text='I have read and agree to the above Terms and Conditions'"
+        )
+        if not modal:
+            # Also try checking for checkbox elements
+            has_checkboxes = page.query_selector_all("input[type='checkbox']")
+            if not has_checkboxes:
+                log.info("[PolyU] No T&C modal detected, proceeding...")
+                return
+
+        log.info("[PolyU] T&C modal detected — accepting terms...")
+
+        # Check both checkboxes
+        for _ in range(2):
+            unchecked = page.query_selector("input[type='checkbox']:not(:checked)")
+            if unchecked:
+                unchecked.click()
+                page.wait_for_timeout(500)
+            else:
+                break
+
+        # Click "Continue to access PolyU Job Board" button
+        continue_btn = page.query_selector(
+            "button:has-text('Continue to access'), "
+            "button:has-text('Continue'), "
+            "[class*='continue']"
+        )
+        if continue_btn:
+            continue_btn.click()
+            log.info("[PolyU] Clicked Continue button on T&C modal")
+            page.wait_for_timeout(3000)
+        else:
+            log.warning("[PolyU] Could not find Continue button on T&C modal")
+            # Fallback: press Enter
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(2000)
+
+    except Exception as e:
+        log.warning(f"[PolyU] T&C handling error: {e}")
 
 
 def scrape_job_list(page) -> list[Job]:
@@ -133,6 +188,9 @@ def scrape_job_list(page) -> list[Job]:
         # Navigate to home
         page.goto(HOME_URL, wait_until="networkidle", timeout=30_000)
         page.wait_for_timeout(3000)
+
+        # Handle T&C modal if it appears on homepage
+        _accept_terms_and_conditions(page)
 
         # Scroll to load all visible cards
         for _ in range(5):
@@ -158,6 +216,7 @@ def scrape_job_list(page) -> list[Job]:
                     lines = [l.strip() for l in full_text.split("\n") if l.strip()]
                     title = lines[0] if lines else ""
                 if not title or len(title) < 2:
+                    log.debug(f"[PolyU] Card skipped: title='{title}', card_text={card.inner_text().strip()[:80]}")
                     continue
 
                 # Company: try multiple selectors
@@ -189,11 +248,10 @@ def scrape_job_list(page) -> list[Job]:
                     url=url,
                     source="PolyU Jobboard",
                     deadline=deadline,
-                    raw_data={"job_type": job_type, "post_id": post_id}
                 )
                 jobs.append(job)
             except Exception as e:
-                log.debug(f"[PolyU] Card parse error: {e}")
+                log.warning(f"[PolyU] Card parse error: {e}")
                 continue
 
         log.info(f"[PolyU] Extracted {len(jobs)} jobs from homepage")
@@ -226,6 +284,7 @@ def scrape_job_posts_page(page) -> list[Job]:
                     lines = [l.strip() for l in full_text.split("\n") if l.strip()]
                     title = lines[0] if lines else ""
                 if not title or len(title) < 2:
+                    log.debug(f"[PolyU] Card skipped: title='{title}', card_text={card.inner_text().strip()[:80]}")
                     continue
 
                 company_el = card.query_selector("div.text-sm.font-light, [class*='company'], span.text-sm")
@@ -252,11 +311,10 @@ def scrape_job_posts_page(page) -> list[Job]:
                     url=url,
                     source="PolyU Jobboard",
                     deadline=deadline,
-                    raw_data={"job_type": job_type, "post_id": post_id}
                 )
                 jobs.append(job)
             except Exception as e:
-                log.debug(f"[PolyU] Card parse error: {e}")
+                log.warning(f"[PolyU] Card parse error: {e}")
                 continue
 
         log.info(f"[PolyU] Extracted {len(jobs)} jobs from /job-posts")

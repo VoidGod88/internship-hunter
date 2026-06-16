@@ -4,24 +4,61 @@ scrapers/jobsdb.py — JobsDB HK scraper using Playwright.
 import time
 import random
 import logging
-from pathlib import Path
+import urllib.parse
 from .base import BaseScraper
 
 log = logging.getLogger("hunter")
+
+# Multiple card selectors to try (in order of reliability)
+CARD_SELECTORS = [
+    "[data-automation='job-list-item']",
+    "article",
+    "[class*='job-card']",
+    "[class*='JobCard']",
+    "a[href*='/job/']",
+]
+
+TITLE_SELECTORS = [
+    "[data-automation='job-title']",
+    "h3", "h2",
+    "a[href*='/job/']",
+    "[class*='title']",
+]
+
+COMPANY_SELECTORS = [
+    "[data-automation='company-name']",
+    "h4",
+    "[class*='company']",
+]
+
+
+def _query_selector_all_multi(page, selectors: list[str]) -> list:
+    """
+    Try multiple selectors, return the first non-empty result.
+    Playwright's query_selector_all only accepts a single string selector.
+    """
+    for sel in selectors:
+        try:
+            elements = page.query_selector_all(sel)
+            if elements:
+                log.debug(f"[JobsDB] Found {len(elements)} cards with selector: {sel}")
+                return elements
+        except Exception as e:
+            log.debug(f"[JobsDB] Selector '{sel}' failed: {e}")
+            continue
+    return []
 
 
 def scrape_jobsdb(page, keywords: list[str], max_per_kw: int = 10) -> list:
     """
     Scrape JobsDB HK for internship jobs.
-    URL format: https://hk.jobsdb.com/job-search/{kw}-jobs/in-hong-kong
+    URL format: https://hk.jobsdb.com/job-search?q={kw}&l=Hong+Kong
     """
     jobs = []
     log.info("[JobsDB] Starting...")
 
     for kw in keywords[:3]:
         log.info(f"  Searching: {kw}")
-        # Build URL — spaces to %20, not hyphens (JobsDB uses query params)
-        import urllib.parse
         encoded_kw = urllib.parse.quote(kw)
         url = f"https://hk.jobsdb.com/job-search?q={encoded_kw}&l=Hong+Kong"
         try:
@@ -37,65 +74,56 @@ def scrape_jobsdb(page, keywords: list[str], max_per_kw: int = 10) -> list:
             page.keyboard.press("End")
             page.wait_for_timeout(3000)
 
-            # Try multiple card selectors (JobsDB changes DOM frequently)
-            cards = page.query_selector_all([
-                "[data-automation='job-list-item']",
-                "article",
-                "[class*='job-card']",
-                "[class*='JobCard']",
-                "div[class*='job']",
-                "a[href*='/job/']",
-            ])
-            # Flatten if nested
-            if cards and isinstance(cards[0], list):
-                cards = [c for sublist in cards for c in (sublist if isinstance(sublist, list) else [sublist])]
-
-            # Fallback: if query_selector_all with list didn't work, try one by one
-            if not cards:
-                for sel in ["[data-automation='job-list-item']", "article",
-                            "[class*='job-card']", "a[href*='/job/']"]:
-                    cards = page.query_selector_all(sel)
-                    if cards:
-                        log.debug(f"[JobsDB] Found cards with selector: {sel}")
-                        break
-
+            # Use multi-selector helper
+            cards = _query_selector_all_multi(page, CARD_SELECTORS)
             log.info(f"  Found {len(cards)} cards")
 
             for card in cards[:max_per_kw]:
                 try:
-                    # Try multiple title selectors
-                    title_el = card.query_selector([
-                        "[data-automation='job-title']",
-                        "h3", "h2",
-                        "a[href*='/job/']",
-                        "[class*='title']",
-                    ]) if not isinstance(card, str) else None
-                    # Handle case where card itself is an <a>
-                    if not title_el and hasattr(card, "inner_text"):
-                        title = card.inner_text().strip()
-                        href = card.get_attribute("href") or ""
-                        company = ""
-                        job_url = href if href.startswith("http") else f"https://hk.jobsdb.com{href}"
-                        if title and len(title) > 3:
-                            jobs.append(BaseScraper.make_job(
-                                title, company, "Hong Kong", job_url, "JobsDB"
-                            ))
+                    # Try to get title from card
+                    title = ""
+                    title_el = None
+                    for sel in TITLE_SELECTORS:
+                        title_el = card.query_selector(sel)
+                        if title_el:
+                            title = title_el.inner_text().strip()
+                            break
+
+                    # Fallback: use card's own text
+                    if not title or len(title) < 3:
+                        full_text = card.inner_text().strip()
+                        lines = [l.strip() for l in full_text.split("\n") if l.strip()]
+                        title = lines[0][:120] if lines else ""
+
+                    if not title or len(title) < 3:
                         continue
 
-                    title = title_el.inner_text().strip() if title_el else ""
-                    company_el = card.query_selector("[data-automation='company-name'], h4, [class*='company']")
-                    company = company_el.inner_text().strip() if company_el else ""
+                    # Company
+                    company = ""
+                    for sel in COMPANY_SELECTORS:
+                        company_el = card.query_selector(sel)
+                        if company_el:
+                            company = company_el.inner_text().strip()
+                            break
+
+                    # URL
+                    href = ""
                     link_el = card.query_selector("a[href*='/job/']")
-                    href = link_el.get_attribute("href") if link_el else ""
-                    job_url = (
-                        href if href and href.startswith("http")
-                        else f"https://hk.jobsdb.com{href}" if href
-                        else ""
-                    )
+                    if link_el:
+                        href = link_el.get_attribute("href") or ""
+                    else:
+                        # Card itself might be an <a>
+                        href = card.get_attribute("href") or ""
+
+                    if href and not href.startswith("http"):
+                        href = "https://hk.jobsdb.com" + href
+                    job_url = href or ""
+
                     if title and len(title) > 3:
                         jobs.append(BaseScraper.make_job(
                             title, company, "Hong Kong", job_url, "JobsDB"
                         ))
+
                 except Exception as e:
                     log.debug(f"[JobsDB] Card parse error: {e}")
                     continue

@@ -25,6 +25,7 @@ class Job:
     extra_docs: str = ""  # Additional documents needed (transcript, form, etc.)
     notes: str = ""
     cover_letter_sent: str = ""
+    deadline: str = ""  # Application deadline (e.g., "2026-07-10")
     _db_id: int = 0  # Runtime DB id, set after insert_job()
 
     def to_dict(self) -> dict:
