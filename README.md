@@ -58,7 +58,7 @@ Scrape Jobs → WIE Filter → CV Match → AI Cover Letter → Track & Send
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/<your-username>/internship-hunter.git
+git clone https://github.com/VoidGod88/internship-hunter.git
 cd internship-hunter
 
 # 2. Create virtual environment & install dependencies
