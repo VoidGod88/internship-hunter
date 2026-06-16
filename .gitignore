@@ -1,0 +1,35 @@
+# Credentials & secrets
+.env
+config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+venv/
+
+# SQLite
+*.db
+
+# Playwright cookies / session
+cookies/
+*.cookies.json
+
+# Outputs
+*.log
+internship_tracker*.xlsx
+applied_history.json
+.pipeline_status.json
+debug_snapshots/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
