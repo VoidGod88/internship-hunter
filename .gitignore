@@ -42,3 +42,8 @@ config.yaml
 
 # User documents (never commit PDF/CV)
 *.pdf
+
+# User data (company list, CV keywords cache, etc.)
+manual_companies.json
+cv_keywords.json
+cv_profile.json

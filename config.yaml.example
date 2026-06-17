@@ -1,0 +1,43 @@
+# Path to your CV PDF (used for keyword extraction and CV matching)
+cv_pdf_path: path/to/your/cv.pdf
+
+# Search keywords for job scraping
+search_keywords:
+  - summer internship 2026 computer science
+  - software engineer intern summer 2026
+  - AI internship summer 2026
+  - data science intern summer 2026
+
+# Scraper toggles (set to false to disable)
+scrapers:
+  linkedin: true
+  jobsdb: true
+  indeed: true
+  efinancialcareers: true
+  manual_companies: true
+  polyu: true
+
+# WIE filter settings (PolyU-specific)
+wie_filter:
+  enabled: true
+  require_hk_location: true
+  exclude_non_cs: true
+  exclude_final_year_required: true
+
+# CV matching settings
+cv_matching:
+  enabled: true
+  match_education: true
+  match_skills: true
+  match_final_year: true
+
+# Cover letter generation
+cover_letter:
+  enabled: true
+  language: en
+
+# Email settings
+email_settings:
+  subject_template: Application for {job_title} – Summer Internship
+  attach_cv: true
+  delay_seconds: 5
