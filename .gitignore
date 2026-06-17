@@ -21,8 +21,10 @@ cookies/
 *.log
 internship_tracker*.xlsx
 applied_history.json
+pipeline_status.json
 .pipeline_status.json
 debug_snapshots/
+data/
 
 # IDE
 .vscode/

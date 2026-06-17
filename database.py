@@ -42,6 +42,7 @@ def init_db():
             ai_relevance_score INTEGER DEFAULT 0,
             status TEXT DEFAULT 'New',
             extra_docs TEXT DEFAULT '',
+            cv_match TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now','localtime'))
         );
 
@@ -86,6 +87,12 @@ def init_db():
     # Migration: add extra_docs column if missing
     try:
         conn.execute("ALTER TABLE jobs ADD COLUMN extra_docs TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Migration: add cv_match column if missing
+    try:
+        conn.execute("ALTER TABLE jobs ADD COLUMN cv_match TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass  # Column already exists
 
@@ -285,6 +292,22 @@ def get_application_history() -> list[dict]:
 def update_job_status(job_id: int, status: str):
     conn = get_db()
     conn.execute("UPDATE jobs SET status=? WHERE id=?", (status, job_id))
+    conn.commit()
+    conn.close()
+
+
+def update_job_cv_match(job_id: int, cv_match_json: str):
+    """Store AI CV-match result (JSON string) for a job."""
+    conn = get_db()
+    conn.execute("UPDATE jobs SET cv_match=? WHERE id=?", (cv_match_json, job_id))
+    conn.commit()
+    conn.close()
+
+
+def update_job_description(job_id: int, description: str):
+    """Overwrite the description field (used after fetching full detail)."""
+    conn = get_db()
+    conn.execute("UPDATE jobs SET description=? WHERE id=?", (description, job_id))
     conn.commit()
     conn.close()
 

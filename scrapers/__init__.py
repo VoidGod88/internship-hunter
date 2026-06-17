@@ -5,14 +5,16 @@ from .linkedin import scrape_linkedin
 from .jobsdb import scrape_jobsdb
 from .indeed import scrape_indeed
 from .efc import scrape_efc
+from .polyu import scrape_polyu
 from .manual import load_manual
 from models import Job
 
 __all__ = [
     "scrape_linkedin",
-    "scrape_jobsdb", 
+    "scrape_jobsdb",
     "scrape_indeed",
     "scrape_efc",
+    "scrape_polyu",
     "load_manual",
     "Job",
 ]
