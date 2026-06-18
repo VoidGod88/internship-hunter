@@ -520,6 +520,7 @@ async def api_keywords_from_cv():
 @app.post("/api/run")
 async def api_run(
     keywords: str = Form(""),
+    fresh: bool = Form(False),
     scraper_polyu: bool = Form(False),
     scraper_linkedin: bool = Form(False),
     scraper_jobsdb: bool = Form(False),
@@ -531,7 +532,23 @@ async def api_run(
     if _pipeline_running:
         return JSONResponse({"error": "Pipeline already running"}, status_code=409)
 
+    # Fresh run: delete DB + status BEFORE launching hunter.py
+    if fresh:
+        _db_path = BASE_DIR / "hunter.db"
+        _status_path = Path(STATUS_FILE)
+        _data_dir = BASE_DIR / "data"
+        for _f in [_db_path, _status_path]:
+            if _f.exists():
+                _f.unlink()
+                log.info(f"[Fresh] Deleted {_f}")
+        if _data_dir.exists():
+            import shutil
+            shutil.rmtree(_data_dir)
+            log.info(f"[Fresh] Deleted {_data_dir}")
+
     cmd = [sys.executable, HUNTER_SCRIPT, "--status-file", STATUS_FILE]
+    if fresh:
+        cmd.append("--fresh")
     if keywords.strip():
         cmd += ["--keywords", keywords.strip()]
     if scraper_polyu:
@@ -613,7 +630,15 @@ async def api_get_config():
     yaml_path = BASE_DIR / "config.yaml"
     if yaml_path.exists():
         yaml_text = yaml_path.read_text(encoding="utf-8")
-    return JSONResponse({"env": env_text, "config_yaml": yaml_text})
+    # Check if critical config is missing
+    config_warnings = []
+    if not cfg.email or "your_email" in cfg.email:
+        config_warnings.append("Email not configured")
+    if not cfg.llm_api_key or "your_api_key" in cfg.llm_api_key:
+        config_warnings.append("LLM API key not configured")
+    if not cfg.cv_pdf_path or "path/to" in cfg.cv_pdf_path:
+        config_warnings.append("CV PDF path not set")
+    return JSONResponse({"env": env_text, "config_yaml": yaml_text, "warnings": config_warnings})
 
 
 @app.post("/api/clear-log")
@@ -633,17 +658,18 @@ async def api_clear_log():
 async def api_linkedin_login():
     """Launch linkedin_login.py as a subprocess (opens a headed browser for manual login)."""
     global _linkedin_login_proc
-    # If already running, return status
+    # If already running, don't launch again
     if _linkedin_login_proc and _linkedin_login_proc.poll() is None:
         return JSONResponse({"success": True, "status": "already_running"})
+    # Reset so previous finished process doesn't block re-launch
+    _linkedin_login_proc = None
     login_script = str(BASE_DIR / "linkedin_login.py")
     try:
+        # Must NOT use CREATE_NO_WINDOW — the login script needs to open a visible browser
+        # Also don't suppress stdout/stderr — user needs to see login progress in run.bat console
         _linkedin_login_proc = subprocess.Popen(
             [sys.executable, login_script],
             cwd=str(BASE_DIR),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         log.info(f"LinkedIn login script started PID={_linkedin_login_proc.pid}")
         return JSONResponse({"success": True, "pid": _linkedin_login_proc.pid})
@@ -730,6 +756,8 @@ select.input-sm { min-width:200px; cursor:pointer; }
 .btn-primary { background:var(--accent); color:#fff; }
 .btn-green { background:var(--green); color:#fff; }
 .btn-red { background:var(--red); color:#fff; }
+.btn-orange { background:#e67e22; color:#fff; }
+.btn-orange:hover { background:#d35400; }
 .btn-outline { background:var(--card); border:1px solid var(--border); color:var(--text); }
 .btn-outline:hover:not(:disabled) { background:#f8fafc; }
 .btn-sm { padding:8px 14px; font-size:13px; }
@@ -881,6 +909,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
     <div class="control-group">
       <button class="btn btn-green" id="btnRun" onclick="runPipeline()">▶ Run</button>
       <button class="btn btn-red" id="btnStop" style="display:none" onclick="stopPipeline()">⏹ Stop</button>
+      <button class="btn btn-orange" id="btnRestart" onclick="restartPipeline()" title="Stop + clear data + re-run">🔄 Restart</button>
     </div>
     <div class="control-group">
       <button class="btn btn-outline" onclick="generateKeywords(this)" title="Generate keywords from CV">🪄 CV Keywords</button>
@@ -1203,6 +1232,42 @@ async function stopPipeline() {
   toast("Stopping pipeline...", "success");
 }
 
+async function restartPipeline() {
+  const btn = document.getElementById("btnRestart");
+  if (btn) { btn.disabled = true; btn.textContent = "🔄 Restarting..."; }
+  toast("Restarting: stopping current run + clearing data...", "success");
+  try {
+    // Stop if running
+    await fetch("/api/stop", { method: "POST" }).catch(()=>{});
+    // Wait a moment for stop to complete
+    await new Promise(r => setTimeout(r, 1000));
+    // Start fresh run
+    const fd = new FormData();
+    fd.set("keywords", document.getElementById("keywordsInput").value);
+    fd.set("fresh", "true");
+    fd.set("scraper_polyu", document.getElementById("scraperPolyu")?.checked ?? true);
+    fd.set("scraper_linkedin", document.getElementById("scraperLinkedin").checked);
+    fd.set("scraper_jobsdb", document.getElementById("scraperJobsdb").checked);
+    fd.set("scraper_indeed", document.getElementById("scraperIndeed").checked);
+    fd.set("scraper_efc", document.getElementById("scraperEfc").checked);
+    fd.set("scraper_manual", document.getElementById("scraperManual").checked);
+    const res = await fetch("/api/run", { method: "POST", body: fd });
+    if (res.ok) {
+      const data = await res.json();
+      toast("Fresh run started! PID=" + (data.pid||"?"), "success");
+      document.getElementById("btnRun").style.display = "none";
+      document.getElementById("btnStop").style.display = "";
+      document.getElementById("btnRestart").style.display = "none";
+    } else {
+      const data = await res.json().catch(()=>({}));
+      toast("Error: " + (data.error||"Failed"), "error");
+    }
+  } catch(e) {
+    toast("Error: " + e.message, "error");
+  }
+  if (btn) { btn.disabled = false; btn.textContent = "🔄 Restart"; }
+}
+
 async function generateKeywords(btn) {
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Calling LLM..."; }
   try {
@@ -1239,6 +1304,7 @@ function updateStatusUI(status, running, progressHtml) {
   hdr.textContent = status.message || (running ? "Running..." : "Idle");
   document.getElementById("btnRun").style.display = running ? "none" : "";
   document.getElementById("btnStop").style.display = running ? "" : "none";
+  document.getElementById("btnRestart").style.display = running ? "none" : "";
   if (progressHtml) {
     const fill = document.getElementById("progressFill");
     const match = progressHtml.match(/width:(\d+)%/);
@@ -1258,6 +1324,14 @@ async function openSettings() {
     const d = await res.json();
     document.getElementById("envEditor").value = d.env || "";
     document.getElementById("yamlEditor").value = d.config_yaml || "";
+    // Show config warnings if any
+    const warnEl = document.getElementById("settingsMsg");
+    if (d.warnings && d.warnings.length > 0) {
+      warnEl.textContent = "⚠️ Missing: " + d.warnings.join(", ");
+      warnEl.style.color = "var(--orange)";
+    } else {
+      warnEl.textContent = "";
+    }
   }
   document.getElementById("settingsModal").classList.add("show");
 }

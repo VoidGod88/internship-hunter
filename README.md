@@ -77,6 +77,7 @@ python -m playwright install chromium
 # 3. Launch the web UI
 python web_ui.py
 # Open http://localhost:7861 in your browser
+# On first run, .env and config.yaml will be auto-created with default values
 # Fill in credentials in the ⚙️ Settings panel
 ```
 

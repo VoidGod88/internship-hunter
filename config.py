@@ -4,19 +4,112 @@ Loads from .env (secrets) + config.yaml (settings), merges into one Config objec
 """
 
 import os
+import sys
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
 
 import yaml
-from dotenv import load_dotenv
+
+# ── Try to import dotenv, show helpful error if missing ──
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    print("[Config] ERROR: python-dotenv not installed. Run: pip install python-dotenv")
+    print("[Config] Alternatively, create .env file manually with your credentials")
+    load_dotenv = lambda x: None  # no-op fallback
+
+# ── Paths ──
+BASE_DIR = Path(__file__).parent
+ENV_PATH = BASE_DIR / ".env"
+CONFIG_PATH = BASE_DIR / "config.yaml"
+
+# ── Auto-create config files if missing ──
+def _ensure_config_files():
+    """Create default .env and config.yaml if they don't exist."""
+    # .env
+    env_example = BASE_DIR / ".env.example"
+    if not ENV_PATH.exists():
+        print("[Config] .env not found, creating default...")
+        if env_example.exists():
+            content = env_example.read_text(encoding="utf-8")
+        else:
+            content = """# Email credentials (for sending applications)
+EMAIL=your_email@gmail.com
+EMAIL_PASSWORD=your_google_app_password
+
+# LLM provider for cover letter generation
+LLM_PROVIDER=deepseek
+LLM_API_KEY=your_api_key_here
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-chat
+
+# PolyU Jobboard (optional, leave blank if not using)
+POLYU_NET_ID=your_net_id
+POLYU_PASSWORD=your_password
+"""
+        ENV_PATH.write_text(content, encoding="utf-8")
+        print(f"[Config] Created {ENV_PATH} — please edit it with your credentials")
+
+    # config.yaml
+    yaml_example = BASE_DIR / "config.yaml.example"
+    if not CONFIG_PATH.exists():
+        print("[Config] config.yaml not found, creating default...")
+        if yaml_example.exists():
+            content = yaml_example.read_text(encoding="utf-8")
+        else:
+            content = """# Path to your CV PDF (used for keyword extraction and CV matching)
+cv_pdf_path: path/to/your/cv.pdf
+
+# Search keywords for job scraping
+search_keywords:
+  - summer internship 2026 computer science
+  - software engineer intern summer 2026
+
+# Scraper toggles (set to false to disable)
+scrapers:
+  linkedin: true
+  jobsdb: true
+  indeed: true
+  efinancialcareers: true
+  manual_companies: true
+  polyu: true
+
+# WIE filter settings (PolyU-specific)
+wie_filter:
+  enabled: true
+  require_hk_location: true
+  exclude_non_cs: true
+  exclude_final_year_required: true
+
+# CV matching settings
+cv_matching:
+  enabled: true
+  match_education: true
+  match_skills: true
+  match_final_year: true
+
+# Cover letter generation
+cover_letter:
+  enabled: true
+  language: en
+
+# Email settings
+email_settings:
+  subject_template: Application for {job_title} – Summer Internship
+  attach_cv: true
+  delay_seconds: 5
+"""
+        CONFIG_PATH.write_text(content, encoding="utf-8")
+        print(f"[Config] Created {CONFIG_PATH} — please edit it with your settings")
+
+
+_ensure_config_files()
 
 # ── Load .env ──
-ENV_PATH = Path(__file__).parent / ".env"
 load_dotenv(ENV_PATH)
 
 # ── Load config.yaml ──
-CONFIG_PATH = Path(__file__).parent / "config.yaml"
 _yaml_config = {}
 if CONFIG_PATH.exists():
     with open(CONFIG_PATH, encoding="utf-8") as f:
