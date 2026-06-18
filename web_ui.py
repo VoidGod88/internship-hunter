@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 # ── Check dependencies early ──
 try:
-    from fastapi import FastAPI, Form, Request
+    from fastapi import FastAPI, Form, Request, UploadFile, File
     from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     import uvicorn
 except ImportError as e:
