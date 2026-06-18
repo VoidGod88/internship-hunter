@@ -30,15 +30,21 @@ def _is_logged_in(page) -> bool:
     """Check if the current page shows a logged-in LinkedIn session."""
     url = page.url
     # Not logged in: still on auth pages
-    if any(p in url for p in ["/login", "/checkpoint", "/authwall", "/challenge"]):
+    if any(p in url for p in ["/login", "/checkpoint", "/authwall", "/challenge", "/signup"]):
         return False
-    # Logged in: URL contains feed / mynetwork / jobs etc.
-    if any(p in url for p in ["/feed", "/mynetwork", "/jobs", "/in/", "/notifications"]):
+    # Logged in: URL contains feed / mynetwork / jobs / notifications / dashboard etc.
+    logged_in_urls = ["/feed", "/mynetwork", "/jobs", "/notifications", "/dashboard", "/in/", "/messaging"]
+    if any(p in url for p in logged_in_urls):
         return True
-    # Check for logged-in UI elements (global nav bar)
+    # Check for logged-in UI elements (global nav bar) — more reliable than URL
     try:
-        nav = page.query_selector("nav, .global-nav, [data-test-global-nav]")
+        # LinkedIn's global nav has specific data attributes
+        nav = page.query_selector("[data-test-global-nav], nav.global-nav, .c-global-nav")
         if nav:
+            return True
+        # Check for "Start a post" button (only visible when logged in)
+        post_btn = page.query_selector("button[aria-label*='Start a post'], [data-control-name='share.post']")
+        if post_btn:
             return True
     except Exception:
         pass
@@ -53,10 +59,11 @@ def main():
     print("  A browser window will open.")
     print("  1. Manually log in to LinkedIn")
     print("  2. Complete any Cloudflare challenges if prompted")
-    print("  3. After successful login, cookies will be saved automatically")
-    print("  4. The browser will close automatically")
+    print("  3. After successful login, wait 5-10 seconds for auto-detection")
+    print("  4. The browser will close automatically after cookies are saved")
     print()
-    print("  Waiting for login (max 10 minutes)...")
+    print("  If auto-detection fails: close the browser manually,")
+    print("  and cookies will be saved on next run.")
     print("=" * 60)
     print()
 
@@ -87,13 +94,21 @@ def main():
         log.info(f"Browser opened: {page.url}")
         print(f"  [Opened] {page.url}")
         print("  ... waiting for you to log in ...")
+        print("  (Check the browser window — you may need to solve a Cloudflare challenge)")
+        print()
 
         start = time.time()
         logged_in = False
+        last_url = ""
 
         while time.time() - start < LOGIN_TIMEOUT:
             time.sleep(POLL_INTERVAL)
             try:
+                current_url = page.url
+                # Log URL changes for debugging
+                if current_url != last_url:
+                    log.info(f"URL changed: {current_url}")
+                    last_url = current_url
                 if _is_logged_in(page):
                     print(f"\n  [Detected] Logged in! URL={page.url}")
                     log.info("LinkedIn login detected — saving cookies")
@@ -103,26 +118,29 @@ def main():
                 log.debug(f"Login check error: {e}")
             # Still waiting
             elapsed = int(time.time() - start)
-            print(f"  ... waiting ({elapsed}s / {LOGIN_TIMEOUT}s) ...", end="\r")
+            print(f"  ... waiting ({elapsed}s / {LOGIN_TIMEOUT}s) — URL: {page.url[:80]} ...", end="\r")
 
         if not logged_in:
-            print("\n  [Timeout] Login was not detected within 10 minutes.")
-            print("  Cookies NOT saved. Please try again.")
+            print("\n\n  [Timeout] Login was not detected within 10 minutes.")
+            print("  Please try again, or manually log in and THEN run the scraper.")
+            print("  (The scraper will try to use any existing session cookies.)\n")
             browser.close()
             return
 
         # Give a moment for session cookies to settle
-        time.sleep(2)
+        print("\n  Logging in detected! Waiting 5 seconds for cookies to settle...\n")
+        time.sleep(5)
 
         # Save cookies + localStorage + sessionStorage
         COOKIE_PATH.parent.mkdir(parents=True, exist_ok=True)
         ctx.storage_state(path=str(COOKIE_PATH))
-        print(f"\n  [Saved] Cookies saved to: {COOKIE_PATH}")
+        print(f"  [Saved] Cookies saved to: {COOKIE_PATH}")
         print("  You can now run the scraper — it will reuse this session.")
         print()
 
         browser.close()
         print("  [Done] Browser closed. You're all set!")
+        print("=" * 60)
 
 
 if __name__ == "__main__":

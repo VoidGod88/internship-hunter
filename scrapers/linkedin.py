@@ -60,16 +60,9 @@ def _extract_card_data(page) -> list[dict]:
 
 
 def _scroll_to_bottom(page) -> int:
-    """Scroll the results pane to the bottom, then return the new card count.
-
-    LinkedIn renders the result list inside a virtualised <ul>; we have to scroll
-    the parent scrollable container, not the window. The window scroll trick is
-    the most common reason "infinite scroll" scrapers think they're done after
-    page 1.
-    """
+    """Scroll the results pane to the bottom, then return the new card count."""
     global _working_selector
     page.evaluate(f"""() => {{
-        // 1. Try the inner results scroller first (LinkedIn's main jobs page)
         const scroller = document.querySelector(
             '.jobs-search-results-list, .scaffold-layout__list, [class*="scaffold"]'
         );
@@ -77,7 +70,6 @@ def _scroll_to_bottom(page) -> int:
             scroller.scrollTo(0, scroller.scrollHeight);
             return;
         }}
-        // 2. Fallback: window scroll
         window.scrollTo(0, document.body.scrollHeight);
     }}""")
     page.wait_for_timeout(SCROLL_PAUSE_MS)
@@ -86,39 +78,32 @@ def _scroll_to_bottom(page) -> int:
 
 def _scrape_keyword(page, kw: str, max_pages: int) -> list:
     """Scrape a single keyword using infinite scroll. Returns list of Job."""
-    log.info("  Searching: %s", kw)
     url = (
         f"https://www.linkedin.com/jobs/search/?"
         f"keywords={kw.replace(' ', '%20')}"
         f"&location=Hong%20Kong"
-        f"&f_JT=I"                # f_JT=I = internship filter
+        f"&f_JT=I"
     )
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-    except Exception as e:
-        log.warning("  LinkedIn goto [%s] failed: %s", kw, e)
+    except Exception:
+        log.info(f"[LinkedIn] Searching: {kw} → 0 jobs (goto failed)")
         return []
-
-    # ── DEBUG: log current URL and title ──
-    log.info("  Page URL: %s", page.url)
-    log.info("  Page title: %s", page.title())
 
     # Check if redirected to login
     if "/login" in page.url or "/checkpoint" in page.url:
-        log.warning("  Not logged in! Redirected to %s", page.url)
-        log.warning("  Please run 'python linkedin_login.py' to save cookies.")
+        log.info(f"[LinkedIn] Searching: {kw} → 0 jobs (not logged in)")
         return []
 
-    # ── Wait for page to fully load (LinkedIn is JS-heavy) ──
     page.wait_for_timeout(3000)
 
-    # Try multiple possible card selectors (LinkedIn changes DOM often)
+    # Try multiple possible card selectors
     card_selectors = [
-        "li[data-occludable-job-id]",           # current standard
-        "[data-job-id]",                         # alternative
-        ".jobs-search-results__list-item",       # class-based
-        ".scaffold-layout__list-item",           # scaffold layout
-        "ul.jobs-search-results-list > li",      # list container
+        "li[data-occludable-job-id]",
+        "[data-job-id]",
+        ".jobs-search-results__list-item",
+        ".scaffold-layout__list-item",
+        "ul.jobs-search-results-list > li",
     ]
 
     cards_found = False
@@ -126,48 +111,35 @@ def _scrape_keyword(page, kw: str, max_pages: int) -> list:
         try:
             count = page.evaluate(f"() => document.querySelectorAll('{sel}').length")
             if count > 0:
-                log.info("  Found %d cards with selector: %s", count, sel)
-                cards_found = True
-                # Store the working selector for later use
                 global _working_selector
                 _working_selector = sel
+                cards_found = True
                 break
-            else:
-                log.debug("  Selector '%s' returned 0 cards", sel)
         except Exception:
             pass
 
     if not cards_found:
-        log.info("  No cards rendered for '%s' (Cloudflare or no results).", kw)
-        # DEBUG: save page HTML + snapshot of what IS on the page
+        # Save debug HTML
         debug_dir = Path(__file__).parent.parent / "debug"
         debug_dir.mkdir(exist_ok=True)
         html_path = debug_dir / f"linkedin_debug_{kw.replace(' ', '_')}.html"
         try:
-            html_content = page.content()
-            html_path.write_text(html_content, encoding="utf-8")
-            log.info("  Saved debug HTML to: %s", html_path)
-            # Log what elements exist on the page
-            body_text = page.evaluate("() => document.body.innerText.substring(0, 500)")
-            log.info("  Page text preview: %s", body_text[:300])
-        except Exception as e:
-            log.warning("  Failed to save debug HTML: %s", e)
+            html_path.write_text(page.content(), encoding="utf-8")
+        except Exception:
+            pass
+        log.info(f"[LinkedIn] Searching: {kw} → 0 jobs")
         return []
 
     jobs_for_kw: list = []
     seen_ids: set[str] = set()
     no_new_streak = 0
     rounds = 0
-    page_count = 0  # 25 cards ≈ 1 "page" in LinkedIn's UI; useful for max_pages cap
+    page_count = 0
 
     while rounds < SCROLL_MAX_ROUNDS:
         rounds += 1
-
-        # Snapshot current cards
         before = len(seen_ids)
 
-        # Extract whatever's visible NOW (LinkedIn's virtualisation can drop
-        # off-screen nodes from the DOM, so we harvest after every scroll).
         for card in _extract_card_data(page):
             if card["id"] in seen_ids:
                 continue
@@ -187,42 +159,32 @@ def _scrape_keyword(page, kw: str, max_pages: int) -> list:
         if added > 0:
             no_new_streak = 0
             page_count = (len(seen_ids) // 25) + 1
-            log.info("  Scroll %d: +%d new (total %d unique)",
-                     rounds, added, len(seen_ids))
+            if max_pages > 0 and page_count >= max_pages:
+                break
         else:
             no_new_streak += 1
-            log.info("  Scroll %d: no new cards (streak %d/%d)",
-                     rounds, no_new_streak, SCROLL_MAX_NO_NEW)
+            if no_new_streak >= SCROLL_MAX_NO_NEW:
+                break
 
-        # Termination conditions
-        if no_new_streak >= SCROLL_MAX_NO_NEW:
-            log.info("  Stopping: %d consecutive scrolls with no new cards.",
-                     SCROLL_MAX_NO_NEW)
-            break
-        if max_pages > 0 and page_count >= max_pages:
-            log.info("  Stopping: reached max_pages=%d.", max_pages)
-            break
-
-        # Try to load more by scrolling
         _scroll_to_bottom(page)
 
+    log.info(f"[LinkedIn] Searching: {kw} → {len(jobs_for_kw)} jobs")
     return jobs_for_kw
 
 
 def scrape_linkedin(page, keywords: list[str], max_pages: int = 0) -> list:
     """
     Scrape LinkedIn HK internship jobs, one keyword per search, infinite scroll.
-
     - max_pages=0 (default) = scroll until no new cards for SCROLL_MAX_NO_NEW rounds
     - max_pages>0 = cap at that many "pages" (~25 cards each)
     - Final dedup by (title, company) across all keywords.
     """
     jobs: list = []
-    log.info("[LinkedIn] Starting (keywords=%d, infinite-scroll mode)...", len(keywords))
+    log.info(f"[LinkedIn] Searching {len(keywords)} keywords...")
 
     for kw in keywords:
         jobs.extend(_scrape_keyword(page, kw, max_pages))
-        time.sleep(random.uniform(2, 4))   # polite pause between keywords
+        time.sleep(random.uniform(2, 4))
 
     # Final cross-keyword dedup
     seen: set = set()
@@ -233,6 +195,5 @@ def scrape_linkedin(page, keywords: list[str], max_pages: int = 0) -> list:
             seen.add(key)
             unique.append(j)
 
-    log.info("[LinkedIn] Total: %d (deduplicated from %d raw cards)",
-             len(unique), len(jobs))
+    log.info(f"[LinkedIn] Total: {len(unique)} jobs")
     return unique

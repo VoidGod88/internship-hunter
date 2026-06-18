@@ -215,7 +215,6 @@ def run_scrapers(
                     log.info(f"[LinkedIn] Loaded cookies from {_cookie_path}")
                 lj = scrapers.scrape_linkedin(page, keywords, max_pages=0)
                 all_jobs += lj
-                log.info(f"LinkedIn: {len(lj)} jobs")
                 # Save cookies for next run (even if 0 jobs, cookies may have been refreshed)
                 try:
                     _cookie_path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,11 +230,23 @@ def run_scrapers(
         if config.scraper_polyu:
             if progress_callback:
                 progress_callback("Scraping PolyU Job Board...")
+            _polyu_cookie_path = Path(__file__).parent / "cookies" / "polyu.json"
             try:
-                page = scrapers.base.BaseScraper.init_page(browser)
+                page = scrapers.base.BaseScraper.init_page(
+                    browser,
+                    load_cookies_file=str(_polyu_cookie_path) if _polyu_cookie_path.exists() else None,
+                )
+                if _polyu_cookie_path.exists():
+                    log.info(f"[PolyU] Loaded cookies from {_polyu_cookie_path}")
                 pj = scrapers.scrape_polyu(page, keywords, max_pages=3)
                 all_jobs += pj
-                log.info(f"PolyU: {len(pj)} jobs")
+                # Save cookies for next run (even if 0 jobs, cookies may have been refreshed)
+                try:
+                    _polyu_cookie_path.parent.mkdir(parents=True, exist_ok=True)
+                    page._hunter_ctx.storage_state(path=str(_polyu_cookie_path))
+                    log.info(f"[PolyU] Saved cookies to {_polyu_cookie_path}")
+                except Exception as _e:
+                    log.warning(f"[PolyU] Failed to save cookies: {_e}")
             except Exception as e:
                 log.error(f"PolyU error: {e}")
             done += 1
@@ -248,7 +259,6 @@ def run_scrapers(
                 page = scrapers.base.BaseScraper.init_page(browser)
                 jj = scrapers.scrape_jobsdb(page, keywords, max_pages=0)
                 all_jobs += jj
-                log.info(f"JobsDB: {len(jj)} jobs")
             except Exception as e:
                 log.error(f"JobsDB error: {e}")
             done += 1
@@ -261,7 +271,6 @@ def run_scrapers(
                 page = scrapers.base.BaseScraper.init_page(browser)
                 ij = scrapers.scrape_indeed(page, keywords, max_pages=0)
                 all_jobs += ij
-                log.info(f"Indeed: {len(ij)} jobs")
             except Exception as e:
                 log.error(f"Indeed error: {e}")
             done += 1
@@ -274,7 +283,6 @@ def run_scrapers(
                 page = scrapers.base.BaseScraper.init_page(browser)
                 ej = scrapers.scrape_efc(page, keywords, max_pages=5)
                 all_jobs += ej
-                log.info(f"eFC: {len(ej)} jobs")
             except Exception as e:
                 log.error(f"eFC error: {e}")
             done += 1
@@ -428,6 +436,8 @@ def main():
     parser.add_argument("--status-file", type=str, default="", help="Status JSON file for UI polling")
 
     # Scraper toggles
+    parser.add_argument("--fresh", action="store_true",
+                        help="Delete hunter.db before starting (fresh run, no resume)")
     parser.add_argument("--scraper-polyu", action="store_true", default=None)
     parser.add_argument("--scraper-linkedin", action="store_true", default=None)
     parser.add_argument("--scraper-jobsdb", action="store_true", default=None)
@@ -450,6 +460,24 @@ def main():
         config.scraper_efc = args.scraper_efc
     if args.scraper_manual is not None:
         config.scraper_manual = args.scraper_manual
+
+    # ── Fresh run: delete DB + status so we don't resume old data ──
+    if args.fresh:
+        _db_path = Path(__file__).parent / "hunter.db"
+        _status_path = Path(args.status_file) if args.status_file else None
+        _data_dir = Path(__file__).parent / "data"
+        for _f in [_db_path, _status_path]:
+            if _f and _f.exists():
+                _f.unlink()
+                log.info(f"[Fresh] Deleted {_f}")
+        if _data_dir.exists():
+            import shutil
+            shutil.rmtree(_data_dir)
+            log.info(f"[Fresh] Deleted {_data_dir}")
+        # Also clear .last_keywords to force full re-scrape
+        _lk = Path(__file__).parent / ".last_keywords"
+        if _lk.exists():
+            _lk.unlink()
 
     logging.basicConfig(
         level=logging.INFO,

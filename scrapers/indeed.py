@@ -1,6 +1,6 @@
 """
 scrapers/indeed.py — Indeed HK scraper using Playwright.
-Supports: one keyword per search (decision A), infinite pagination (decision C).
+One keyword per search, paginate until no Next button.
 """
 
 import time
@@ -38,18 +38,14 @@ def _query_selector_all_multi(page, selectors: list[str]) -> list:
         try:
             elements = page.query_selector_all(sel)
             if elements:
-                log.debug("[Indeed] Found %d cards with selector: %s", len(elements), sel)
                 return elements
-        except Exception as e:
-            log.debug("[Indeed] Selector '%s' failed: %s", sel, e)
+        except Exception:
             continue
     return []
 
 
 def _go_to_next_page(page) -> bool:
-    """Click Indeed's 'Next' button. Returns True if succeeded."""
     try:
-        # Indeed uses aria-label="Next" or a text link "Next >"
         btn = page.query_selector('a[aria-label="Next"], a:has-text("Next")')
         if btn and btn.is_enabled():
             btn.click()
@@ -63,14 +59,13 @@ def _go_to_next_page(page) -> bool:
 def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
     """
     Scrape Indeed HK for internship jobs.
-    - One search per keyword (decision A).
-    - Paginate until no Next button or max_pages reached (decision C: 0 = unlimited).
+    One search per keyword, paginate until no Next button.
     """
-    jobs = []
-    log.info("[Indeed] Starting (%d keywords)...", len(keywords))
+    all_jobs = []
+    log.info(f"[Indeed] Searching {len(keywords)} keywords...")
 
     for kw in keywords:
-        log.info("  Searching: %s", kw)
+        kw_jobs = []
         base_url = (
             f"https://hk.indeed.com/jobs?"
             f"q={kw.replace(' ', '+')}"
@@ -87,24 +82,16 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
                 try:
                     page.wait_for_selector("[data-jk], .job_seen_beacon, .resultContent", timeout=10_000)
                 except Exception:
-                    log.warning("    No job cards found on page %d, stopping...", page_num + 1)
-                    page.wait_for_timeout(1000)
                     break
 
                 page.wait_for_timeout(3000)
-
                 cards = _query_selector_all_multi(page, CARD_SELECTORS)
-                log.info("  Page %d: %d cards", page_num + 1, len(cards))
-
                 if not cards:
-                    log.info("  No cards on page %d, stopping pagination.", page_num + 1)
                     break
 
                 for card in cards:
                     try:
-                        # Try to get title from card
                         title = ""
-                        title_el = None
                         for sel in TITLE_SELECTORS:
                             try:
                                 title_el = card.query_selector(sel)
@@ -114,7 +101,6 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
                             except Exception:
                                 continue
 
-                        # Fallback: get title from card text
                         if not title or len(title) < 3:
                             txt = card.inner_text()
                             lines = [l.strip() for l in txt.split("\n") if l.strip()]
@@ -124,7 +110,6 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
                         if not title or len(title) < 3:
                             continue
 
-                        # Company
                         company = ""
                         for sel in COMPANY_SELECTORS:
                             try:
@@ -135,7 +120,6 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
                             except Exception:
                                 continue
 
-                        # URL
                         href = ""
                         try:
                             link_el = card.query_selector("a[href*='/job/']")
@@ -149,42 +133,37 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
                         job_url = href or ""
 
                         if title and len(title) > 3:
-                            jobs.append(BaseScraper.make_job(
+                            kw_jobs.append(BaseScraper.make_job(
                                 title, company, "Hong Kong", job_url, "Indeed"
                             ))
 
-                    except Exception as e:
-                        log.debug("  [Indeed] Card parse error: %s", e)
+                    except Exception:
                         continue
 
-                # Pagination check
                 if max_pages > 0 and page_num + 1 >= max_pages:
-                    log.info("  Reached max_pages=%d, stopping.", max_pages)
                     break
-
-                # Try clicking "Next" button
                 if not _go_to_next_page(page):
-                    log.info("  No next page, stopping.")
                     break
 
-                start += 10  # Indeed shows 10 results per page
+                start += 10
                 page_num += 1
                 time.sleep(random.uniform(2, 4))
 
-            except Exception as e:
-                log.warning("  Indeed [%s] page %d failed: %s", kw[:40], page_num + 1, e)
+            except Exception:
                 break
 
+        all_jobs.extend(kw_jobs)
+        log.info(f"[Indeed] Searching: {kw} → {len(kw_jobs)} jobs")
         time.sleep(random.uniform(1, 2))
 
     # Deduplicate by (title, company)
     seen = set()
     unique = []
-    for j in jobs:
+    for j in all_jobs:
         key = (j.title.strip().lower(), j.company.strip().lower())
         if key not in seen and j.title.strip():
             seen.add(key)
             unique.append(j)
 
-    log.info("[Indeed] Total: %d (deduplicated from %d)", len(unique), len(jobs))
+    log.info(f"[Indeed] Total: {len(unique)} jobs")
     return unique

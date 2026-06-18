@@ -90,6 +90,7 @@ if not log.handlers:
 _pipeline_proc: Optional[subprocess.Popen] = None
 _pipeline_running = False
 _linkedin_login_proc: Optional[subprocess.Popen] = None
+_polyu_login_proc: Optional[subprocess.Popen] = None
 _sses: List[asyncio.Queue] = []
 _jobs_cache: Optional[List[dict]] = None
 _history_cache: Optional[List[dict]] = None
@@ -753,6 +754,33 @@ async def api_linkedin_login():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/polyu-login")
+async def api_polyu_login():
+    """Launch polyu_login.py in a NEW terminal window (so user can see prompts)."""
+    global _polyu_login_proc
+    # If already running, don't launch again
+    if _polyu_login_proc and _polyu_login_proc.poll() is None:
+        return JSONResponse({"success": True, "status": "already_running"})
+    # Reset so previous finished process doesn't block re-launch
+    _polyu_login_proc = None
+    login_script = str(BASE_DIR / "polyu_login.py")
+    try:
+        # Open a NEW terminal window so user can see prompts and press Enter
+        # `cmd /k` keeps the window open after the script ends
+        py = sys.executable
+        cmd = f'start "PolyU Login" cmd /k ""{py}" "{login_script}""'
+        _polyu_login_proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            cwd=str(BASE_DIR),
+        )
+        log.info(f"PolyU login script started in new window")
+        return JSONResponse({"success": True})
+    except Exception as e:
+        log.exception("Failed to start PolyU login script")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/api/cl/update/{job_id}")
 async def api_update_cl(job_id: int, content: str = Form("")):
     try:
@@ -1014,6 +1042,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <button class="btn btn-outline" onclick="document.getElementById('cvFileInput').click()" title="Upload your CV PDF">📄 Upload CV</button>
       <input type="file" id="cvFileInput" accept=".pdf" style="display:none" onchange="uploadCV(this)">
       <button class="btn btn-outline" onclick="linkedinLogin()" title="Open browser to manually log in to LinkedIn (saves cookies for scraping)">🔐 LinkedIn Login</button>
+      <button class="btn btn-outline" onclick="polyuLogin()" title="Open browser to manually log in to PolyU Job Board (saves cookies)">🏫 PolyU Login</button>
     </div>
   </div>
 
@@ -1086,17 +1115,20 @@ select.input-sm { min-width:200px; cursor:pointer; }
 
     <!-- Tab: PolyU -->
     <div class="settings-panel" id="settingsPanel-polyu">
-      <div class="form-group">
-        <label>PolyU NetID</label>
-        <input type="text" id="fld_polyu_net_id" placeholder="your_net_id">
-        <div class="form-hint">Only needed if you enable PolyU Job Board scraper.</div>
+      <div style="background:#e8f4fd;border:1px solid #90caf9;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#1565c0">
+        💡 <b>Tip:</b> You can skip filling password below. Just click <b>"🏫 PolyU Login"</b> on the main page to log in once, and cookies will be saved for future runs.
       </div>
       <div class="form-group">
-        <label>PolyU Password</label>
+        <label>PolyU NetID <span style="font-weight:400;color:var(--muted);font-size:11px">(optional if using PolyU Login)</span></label>
+        <input type="text" id="fld_polyu_net_id" placeholder="your_net_id">
+      </div>
+      <div class="form-group">
+        <label>PolyU Password <span style="font-weight:400;color:var(--muted);font-size:11px">(optional if using PolyU Login)</span></label>
         <div class="input-wrapper">
           <input type="password" id="fld_polyu_password" placeholder="your_password">
           <span class="toggle-password" onclick="togglePw('fld_polyu_password', this)">👁</span>
         </div>
+        <div class="form-hint">Fallback: if cookies expire, password will be used for auto-login.</div>
       </div>
     </div>
 
@@ -1498,6 +1530,19 @@ async function linkedinLogin() {
     const data = await res.json();
     if (res.ok) {
       toast("Browser opened! Please log in to LinkedIn manually. Cookies auto-saved after login.", "success");
+    } else {
+      toast("Error: " + (data.error || "Failed to launch browser"), "error");
+    }
+  } catch(e) { toast("Error: " + e.message, "error"); }
+}
+
+async function polyuLogin() {
+  toast("Opening browser for PolyU login...", "success");
+  try {
+    const res = await fetch("/api/polyu-login", { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      toast("Browser opened! Please log in to PolyU manually and accept T&C. Cookies auto-saved after login.", "success");
     } else {
       toast("Error: " + (data.error || "Failed to launch browser"), "error");
     }

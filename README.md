@@ -33,6 +33,7 @@ Scrape Jobs → WIE Filter → CV Match → AI Detail Fetch → Track & Send
 - **6 Job Sources** — LinkedIn, JobsDB, Indeed HK, eFinancialCareers, PolyU Job Board, Manual company list
 - **🎯 On-Demand LLM** — CV parsing, CV-job matching, and detail extraction triggered manually from the UI; pipeline itself makes 0 LLM calls
 - **🔐 LinkedIn Cookie Login** — One-click browser login saves cookies, bypassing Cloudflare detection
+- **🏫 PolyU Cookie Login** — Same cookie-based auth for PolyU Job Board (no need to configure NetID/password; login once, save cookies)
 - **🎮 CV-Generated Keywords** — One-click button extracts search keywords from your CV and fills the keyword input
 - **📄 Job Detail Panel** — Select a job, fetch full description + structured application info via LLM
 - **📝 AI Cover Letters** — DeepSeek / OpenAI compatible API; generates role-specific, personalized cover letters
@@ -102,12 +103,14 @@ LLM_API_KEY=your_deepseek_api_key
 LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-chat
 
-# PolyU Jobboard (optional, for PolyU students)
-POLYU_NET_ID=your_net_id
-POLYU_PASSWORD=your_polyu_password
+# PolyU Jobboard (optional — can use Cookie Login instead, see below)
+# POLYU_NET_ID=your_net_id
+# POLYU_PASSWORD=your_polyu_password
 ```
 
 > **Note:** `.env` is gitignored. The repo ships without real credentials.
+>
+> **PolyU Cookie Login:** If you don't want to store your PolyU password in `.env`, use the **"🏫 PolyU Login"** button in the UI to manually log in once. Cookies will be saved to `cookies/polyu.json` for future runs.
 
 ### `config.yaml` — Settings
 
@@ -155,6 +158,7 @@ The web UI is a single-page interface with the following layout:
 - **Search Keywords** — Comma-separated, editable inline
 - **Scraper Toggles** — Enable/disable individual platforms (LinkedIn, JobsDB, Indeed, eFC, PolyU, Manual)
 - **🔐 LinkedIn Login** — Opens a browser window for manual LinkedIn login; saves cookies for future scrapes (bypasses Cloudflare)
+- **🏫 PolyU Login** — Opens a browser window for manual PolyU Job Board login; saves cookies (no need to enter NetID/password in .env)
 - **🎮 CV Keywords** — Extracts search keywords from your uploaded CV via LLM
 - **▶ Run / ⏹ Stop** — Start/stop the scraping pipeline
 - **📄 Fetch Detail** — Fetch full job description via LLM (per-job, on demand)
@@ -176,6 +180,7 @@ internship-hunter/
 ├── cv_reader.py            # CV PDF text extraction + LLM keyword extraction
 ├── fetch_job_detail.py     # Open job URL in browser, extract full detail via LLM
 ├── linkedin_login.py       # Standalone script: manual LinkedIn login, saves cookies
+├── polyu_login.py          # Standalone script: manual PolyU login, saves cookies
 ├── manual_companies.json   # Custom company list for manual scraping
 │
 ├── scrapers/               # External job board scrapers
@@ -261,6 +266,19 @@ LinkedIn has strong Cloudflare protection that blocks automated scrapers. This p
 4. **Automatic Cookie Loading** — Future scraping runs automatically load saved cookies, bypassing Cloudflare
 
 > **Note:** Cookies expire after some time. If scraping fails, re-run "🔐 LinkedIn Login".
+
+---
+
+## 🏫 PolyU Job Board Cookie Auth
+
+PolyU Job Board has a Terms & Conditions modal with custom checkboxes that cannot be clicked programmatically. This project solves it by:
+
+1. **Cookie-Based Auth** — Use the "🏫 PolyU Login" button in the UI to manually log in to PolyU Job Board (including accepting the T&C checkboxes)
+2. **Cookie Persistence** — After login, cookies are saved to `cookies/polyu.json`
+3. **Automatic Cookie Loading** — Future scraping runs automatically load saved cookies, skipping the T&C modal entirely
+4. **No Password Needed** — You can leave `POLYU_NET_ID` and `POLYU_PASSWORD` blank in `.env`; the cookie-based auth handles everything
+
+> **Note:** Cookies expire after some time (usually when you log out or after a long period). If PolyU scraping fails, re-run "🏫 PolyU Login".
 
 ---
 

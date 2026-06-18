@@ -1,6 +1,6 @@
 """
 scrapers/jobsdb.py — JobsDB HK scraper using Playwright.
-Supports: one keyword per search (decision A), infinite pagination (decision C).
+One keyword per search, paginate until no next page.
 """
 
 import time
@@ -38,16 +38,13 @@ def _query_selector_all_multi(page, selectors: list[str]) -> list:
         try:
             elements = page.query_selector_all(sel)
             if elements:
-                log.debug("[JobsDB] Found %d cards with selector: %s", len(elements), sel)
                 return elements
-        except Exception as e:
-            log.debug("[JobsDB] Selector '%s' failed: %s", sel, e)
+        except Exception:
             continue
     return []
 
 
 def _has_next_page(page) -> bool:
-    """Check if a 'Next' or 'Load more' button exists."""
     try:
         next_btn = page.query_selector(
             "a[aria-label='Next'], button[aria-label='Next'], "
@@ -59,7 +56,6 @@ def _has_next_page(page) -> bool:
 
 
 def _go_to_next_page(page) -> bool:
-    """Click the Next button. Returns True if succeeded."""
     try:
         next_btn = page.query_selector(
             "a[aria-label='Next'], button[aria-label='Next'], "
@@ -77,14 +73,13 @@ def _go_to_next_page(page) -> bool:
 def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0) -> list:
     """
     Scrape JobsDB HK for internship jobs.
-    - One search per keyword (decision A).
-    - Paginate until no next page or max_pages reached (decision C: 0 = unlimited).
+    One search per keyword, paginate until no next page.
     """
-    jobs = []
-    log.info("[JobsDB] Starting (keywords=%d)...", len(keywords))
+    all_jobs = []
+    log.info(f"[JobsDB] Searching {len(keywords)} keywords...")
 
     for kw in keywords:
-        log.info("  Searching: %s", kw)
+        kw_jobs = []
         encoded_kw = urllib.parse.quote(kw)
         base_url = f"https://hk.jobsdb.com/job-search?q={encoded_kw}&l=Hong+Kong"
         page_num = 0
@@ -104,29 +99,21 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0) -> list:
                 except Exception:
                     pass
 
-                # Scroll to load all cards
                 page.keyboard.press("End")
                 page.wait_for_timeout(3000)
 
                 cards = _query_selector_all_multi(page, CARD_SELECTORS)
-                log.info("  Page %d: %d cards", page_num + 1, len(cards))
-
                 if not cards:
-                    log.info("  No cards on page %d, stopping pagination.", page_num + 1)
                     break
 
                 for card in cards:
                     try:
-                        # Try to get title from card
                         title = ""
-                        title_el = None
                         for sel in TITLE_SELECTORS:
                             title_el = card.query_selector(sel)
                             if title_el:
                                 title = title_el.inner_text().strip()
                                 break
-
-                        # Fallback: use card's own text
                         if not title or len(title) < 3:
                             full_text = card.inner_text().strip()
                             lines = [l.strip() for l in full_text.split("\n") if l.strip()]
@@ -135,7 +122,6 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0) -> list:
                         if not title or len(title) < 3:
                             continue
 
-                        # Company
                         company = ""
                         for sel in COMPANY_SELECTORS:
                             company_el = card.query_selector(sel)
@@ -143,7 +129,6 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0) -> list:
                                 company = company_el.inner_text().strip()
                                 break
 
-                        # URL
                         href = ""
                         link_el = card.query_selector("a[href*='/job/']")
                         if link_el:
@@ -156,41 +141,36 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0) -> list:
                         job_url = href or ""
 
                         if title and len(title) > 3:
-                            jobs.append(BaseScraper.make_job(
+                            kw_jobs.append(BaseScraper.make_job(
                                 title, company, "Hong Kong", job_url, "JobsDB"
                             ))
 
-                    except Exception as e:
-                        log.debug("[JobsDB] Card parse error: %s", e)
+                    except Exception:
                         continue
 
-                # Pagination check
                 if max_pages > 0 and page_num + 1 >= max_pages:
-                    log.info("  Reached max_pages=%d, stopping.", max_pages)
                     break
-
-                # Try clicking "Next" button
                 if not _go_to_next_page(page):
-                    log.info("  No next page, stopping.")
                     break
 
                 page_num += 1
                 time.sleep(random.uniform(2, 4))
 
-            except Exception as e:
-                log.warning("  JobsDB [%s] page %d failed: %s", kw, page_num + 1, e)
+            except Exception:
                 break
 
+        all_jobs.extend(kw_jobs)
+        log.info(f"[JobsDB] Searching: {kw} → {len(kw_jobs)} jobs")
         time.sleep(random.uniform(2, 4))
 
     # Deduplicate by (title, company)
     seen = set()
     unique = []
-    for j in jobs:
+    for j in all_jobs:
         key = (j.title.strip().lower(), j.company.strip().lower())
         if key not in seen and j.title.strip():
             seen.add(key)
             unique.append(j)
 
-    log.info("[JobsDB] Total: %d (deduplicated from %d)", len(unique), len(jobs))
+    log.info(f"[JobsDB] Total: {len(unique)} jobs")
     return unique
