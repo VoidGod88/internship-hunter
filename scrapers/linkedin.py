@@ -91,11 +91,34 @@ def _scrape_keyword(page, kw: str, max_pages: int) -> list:
         log.warning("  LinkedIn goto [%s] failed: %s", kw, e)
         return []
 
+    # ── DEBUG: log current URL and title ──
+    log.info("  Page URL: %s", page.url)
+    log.info("  Page title: %s", page.title())
+    
+    # Check if redirected to login
+    if "/login" in page.url or "/checkpoint" in page.url:
+        log.warning("  Not logged in! Redirected to %s", page.url)
+        log.warning("  Please run 'python linkedin_login.py' to save cookies.")
+        return []
+
     # Wait for the first batch of cards to render
     try:
         page.wait_for_selector("li[data-occludable-job-id]", timeout=15_000)
+        # ── DEBUG: log how many cards found ──
+        card_count = page.evaluate("() => document.querySelectorAll('li[data-occludable-job-id]').length")
+        log.info("  Found %d job cards on page", card_count)
     except Exception:
         log.info("  No cards rendered for '%s' (Cloudflare or no results).", kw)
+        # DEBUG: save page HTML for diagnosis
+        debug_dir = Path(__file__).parent.parent / "debug"
+        debug_dir.mkdir(exist_ok=True)
+        html_path = debug_dir / f"linkedin_debug_{kw.replace(' ', '_')}.html"
+        try:
+            html_content = page.content()
+            html_path.write_text(html_content, encoding="utf-8")
+            log.info("  Saved debug HTML to: %s", html_path)
+        except Exception as e:
+            log.warning("  Failed to save debug HTML: %s", e)
         return []
 
     jobs_for_kw: list = []
