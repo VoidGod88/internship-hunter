@@ -825,10 +825,29 @@ select.input-sm { min-width:200px; cursor:pointer; }
 .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:100;
   align-items:center; justify-content:center; }
 .modal-overlay.show { display:flex; }
-.modal { background:var(--card); border-radius:var(--radius); padding:20px; width:90%; max-width:700px;
-  max-height:85vh; overflow-y:auto; box-shadow:0 10px 40px rgba(0,0,0,.15); }
-.modal h2 { margin-bottom:14px; }
-.modal textarea { width:100%; min-height:80px; font-family:monospace; padding:8px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+.modal { background:var(--card); border-radius:var(--radius); padding:20px; width:90%; max-width:720px;
+  max-height:90vh; overflow-y:auto; box-shadow:0 10px 40px rgba(0,0,0,.15); }
+.modal h2 { margin-bottom:4px; }
+.modal .modal-desc { font-size:12px; color:var(--muted); margin-bottom:14px; }
+.settings-tabs { display:flex; gap:0; margin-bottom:14px; border-bottom:2px solid var(--border); }
+.settings-tab { padding:8px 16px; cursor:pointer; font-size:13px; font-weight:500; color:var(--muted);
+  border-bottom:2px solid transparent; margin-bottom:-2px; transition:.15s; }
+.settings-tab:hover { color:var(--text); }
+.settings-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+.settings-panel { display:none; }
+.settings-panel.active { display:block; }
+.form-group { margin-bottom:12px; }
+.form-group label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; font-weight:500; }
+.form-group input, .form-group textarea, .form-group select { width:100%; padding:8px 10px; border:1px solid var(--border);
+  border-radius:6px; font-size:13px; background:var(--card); transition:.15s; }
+.form-group input:focus, .form-group textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,.1); }
+.form-group input[type="password"] { font-family:monospace; }
+.form-row { display:flex; gap:10px; }
+.form-row .form-group { flex:1; }
+.form-hint { font-size:11px; color:var(--muted); margin-top:3px; }
+.toggle-password { position:absolute; right:8px; top:50%; transform:translateY(-50%); cursor:pointer; font-size:14px;
+  user-select:none; }
+.input-wrapper { position:relative; }
 .modal-actions { display:flex; gap:8px; margin-top:14px; justify-content:flex-end; }
 
 /* Empty state */
@@ -976,17 +995,110 @@ select.input-sm { min-width:200px; cursor:pointer; }
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <h2>⚙️ Settings</h2>
-    <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">.env (credentials)</label>
-      <textarea id="envEditor" rows="7" placeholder="EMAIL=...&#10;LLM_API_KEY=..."></textarea>
+    <p class="modal-desc">Fill in your credentials below. Passwords are hidden by default — click 👁 to reveal.</p>
+
+    <div class="settings-tabs">
+      <div class="settings-tab active" onclick="switchSettingsTab('email')">📧 Email</div>
+      <div class="settings-tab" onclick="switchSettingsTab('llm')">🤖 AI / LLM</div>
+      <div class="settings-tab" onclick="switchSettingsTab('polyu')">🏫 PolyU</div>
+      <div class="settings-tab" onclick="switchSettingsTab('cv')">📄 CV & Keywords</div>
+      <div class="settings-tab" onclick="switchSettingsTab('advanced')">🔧 Advanced</div>
     </div>
-    <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">config.yaml</label>
-      <textarea id="yamlEditor" rows="18" placeholder="cv_pdf_path: ..."></textarea>
+
+    <!-- Tab: Email -->
+    <div class="settings-panel active" id="settingsPanel-email">
+      <div class="form-group">
+        <label>Email Address (Gmail)</label>
+        <input type="email" id="fld_email" placeholder="your_email@gmail.com">
+        <div class="form-hint">Used for sending applications. Requires Gmail App Password.</div>
+      </div>
+      <div class="form-group">
+        <label>Email App Password</label>
+        <div class="input-wrapper">
+          <input type="password" id="fld_email_password" placeholder="xxxx xxxx xxxx xxxx">
+          <span class="toggle-password" onclick="togglePw('fld_email_password', this)">👁</span>
+        </div>
+        <div class="form-hint">Generate at <a href="https://support.google.com/accounts/answer/185833" target="_blank">Google App Passwords</a>. Not your regular password!</div>
+      </div>
     </div>
+
+    <!-- Tab: LLM -->
+    <div class="settings-panel" id="settingsPanel-llm">
+      <div class="form-row">
+        <div class="form-group">
+          <label>LLM Provider</label>
+          <input type="text" id="fld_llm_provider" placeholder="deepseek">
+        </div>
+        <div class="form-group">
+          <label>LLM Model</label>
+          <input type="text" id="fld_llm_model" placeholder="deepseek-chat">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>API Key</label>
+        <div class="input-wrapper">
+          <input type="password" id="fld_llm_api_key" placeholder="sk-...">
+          <span class="toggle-password" onclick="togglePw('fld_llm_api_key', this)">👁</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>API Base URL</label>
+        <input type="text" id="fld_llm_base_url" placeholder="https://api.deepseek.com">
+        <div class="form-hint">Leave default for DeepSeek. For OpenAI, use https://api.openai.com/v1</div>
+      </div>
+    </div>
+
+    <!-- Tab: PolyU -->
+    <div class="settings-panel" id="settingsPanel-polyu">
+      <div class="form-group">
+        <label>PolyU NetID</label>
+        <input type="text" id="fld_polyu_net_id" placeholder="your_net_id">
+        <div class="form-hint">Only needed if you enable PolyU Job Board scraper.</div>
+      </div>
+      <div class="form-group">
+        <label>PolyU Password</label>
+        <div class="input-wrapper">
+          <input type="password" id="fld_polyu_password" placeholder="your_password">
+          <span class="toggle-password" onclick="togglePw('fld_polyu_password', this)">👁</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: CV & Keywords -->
+    <div class="settings-panel" id="settingsPanel-cv">
+      <div class="form-group">
+        <label>CV PDF File</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="fld_cv_pdf_path" placeholder="path/to/your/cv.pdf" style="flex:1">
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('cvFileInput2').click()">📄 Upload</button>
+          <input type="file" id="cvFileInput2" accept=".pdf" style="display:none" onchange="uploadCV(this)">
+        </div>
+        <div class="form-hint" id="cvFileStatus">No CV uploaded yet.</div>
+      </div>
+      <div class="form-group">
+        <label>Search Keywords (one per line)</label>
+        <textarea id="fld_search_keywords" rows="4" placeholder="summer internship 2026 computer science&#10;software engineer intern summer 2026"></textarea>
+        <div class="form-hint">These keywords are used to search for jobs. Edit or use "🪄 CV Keywords" button on main page.</div>
+      </div>
+    </div>
+
+    <!-- Tab: Advanced -->
+    <div class="settings-panel" id="settingsPanel-advanced">
+      <div class="form-group">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">.env (raw editor)</label>
+        <textarea id="envEditor" rows="6" placeholder="EMAIL=...&#10;LLM_API_KEY=..."></textarea>
+        <div class="form-hint">Advanced: edit raw .env file. Changes here override the form above.</div>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">config.yaml (raw editor)</label>
+        <textarea id="yamlEditor" rows="14" placeholder="cv_pdf_path: ..."></textarea>
+        <div class="form-hint">Advanced: edit raw config.yaml. For scraper toggles, WIE filter, etc.</div>
+      </div>
+    </div>
+
     <div class="modal-actions">
-      <button class="btn btn-primary" onclick="saveSettings()">💾 Save</button>
-      <button class="btn btn-outline" onclick="closeModal('settingsModal')">Close</button>
+      <button class="btn btn-primary" onclick="saveSettings()">💾 Save All</button>
+      <button class="btn btn-outline" onclick="closeModal('settingsModal')">Cancel</button>
       <span id="settingsMsg" style="font-size:12px"></span>
     </div>
   </div>
@@ -1364,6 +1476,12 @@ async function uploadCV(input) {
     const data = await res.json();
     if (res.ok) {
       toast("CV uploaded: " + file.name, "success");
+      // Update CV path field in settings (if open)
+      const pathFld = document.getElementById("fld_cv_pdf_path");
+      if (pathFld) {
+        pathFld.value = data.path;
+        document.getElementById("cvFileStatus").textContent = "✅ " + file.name;
+      }
       // Refresh config warnings
       checkConfig();
     } else {
@@ -1423,40 +1541,143 @@ function clearLog() {
 }
 
 // ── Settings ──
+function switchSettingsTab(tab) {
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('settingsPanel-' + tab).classList.add('active');
+}
+
+function togglePw(fieldId, el) {
+  const fld = document.getElementById(fieldId);
+  if (fld.type === 'password') {
+    fld.type = 'text';
+    el.textContent = '🙈';
+  } else {
+    fld.type = 'password';
+    el.textContent = '👁';
+  }
+}
+
 async function openSettings() {
   const res = await fetch("/api/config");
   if (res.ok) {
     const d = await res.json();
-    document.getElementById("envEditor").value = d.env || "";
-    document.getElementById("yamlEditor").value = d.config_yaml || "";
+    // Parse .env into form fields
+    const envLines = (d.env || '').split('\n');
+    const envMap = {};
+    envLines.forEach(line => {
+      const idx = line.indexOf('=');
+      if (idx > 0) envMap[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
+    });
+    document.getElementById('fld_email').value = envMap['EMAIL'] || '';
+    document.getElementById('fld_email_password').value = envMap['EMAIL_PASSWORD'] || '';
+    document.getElementById('fld_llm_provider').value = envMap['LLM_PROVIDER'] || 'deepseek';
+    document.getElementById('fld_llm_api_key').value = envMap['LLM_API_KEY'] || '';
+    document.getElementById('fld_llm_base_url').value = envMap['LLM_BASE_URL'] || '';
+    document.getElementById('fld_llm_model').value = envMap['LLM_MODEL'] || '';
+    document.getElementById('fld_polyu_net_id').value = envMap['POLYU_NET_ID'] || '';
+    document.getElementById('fld_polyu_password').value = envMap['POLYU_PASSWORD'] || '';
+
+    // Parse config.yaml into form fields
+    const yaml = d.config_yaml || '';
+    // Extract cv_pdf_path
+    const cvMatch = yaml.match(/^cv_pdf_path:\s*(.*)/m);
+    if (cvMatch) {
+      const path = cvMatch[1].trim();
+      document.getElementById('fld_cv_pdf_path').value = path;
+      document.getElementById('cvFileStatus').textContent = path ? '✅ ' + path.split('/').pop().split('\\').pop() : 'No CV uploaded yet.';
+    }
+    // Extract search_keywords
+    const kwMatch = yaml.match(/search_keywords:\s*\n((?:\s*-\s*.+\n?)*)/);
+    if (kwMatch) {
+      const keywords = kwMatch[1].match(/-\s*(.+)/g) || [];
+      document.getElementById('fld_search_keywords').value = keywords.map(k => k.replace(/-\s*/, '').trim()).join('\n');
+    }
+
+    // Also populate raw editors for advanced tab
+    document.getElementById('envEditor').value = d.env || '';
+    document.getElementById('yamlEditor').value = d.config_yaml || '';
+
     // Show config warnings if any
-    const warnEl = document.getElementById("settingsMsg");
+    const warnEl = document.getElementById('settingsMsg');
     if (d.warnings && d.warnings.length > 0) {
-      warnEl.textContent = "⚠️ Missing: " + d.warnings.join(", ");
-      warnEl.style.color = "var(--orange)";
+      warnEl.textContent = '⚠️ ' + d.warnings.join('  ');
+      warnEl.style.color = 'var(--orange)';
     } else {
-      warnEl.textContent = "";
+      warnEl.textContent = '';
     }
   }
-  document.getElementById("settingsModal").classList.add("show");
+  document.getElementById('settingsModal').classList.add('show');
 }
+
 async function saveSettings() {
-  const env = document.getElementById("envEditor").value;
-  const yaml = document.getElementById("yamlEditor").value;
+  // Read form fields and build .env and config.yaml
+  const envMap = {};
+  // Read existing .env first
+  const envText = document.getElementById('envEditor').value;
+  envText.split('\n').forEach(line => {
+    const idx = line.indexOf('=');
+    if (idx > 0) envMap[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
+  });
+  // Override with form values
+  envMap['EMAIL'] = document.getElementById('fld_email').value.trim();
+  envMap['EMAIL_PASSWORD'] = document.getElementById('fld_email_password').value.trim();
+  envMap['LLM_PROVIDER'] = document.getElementById('fld_llm_provider').value.trim() || 'deepseek';
+  envMap['LLM_API_KEY'] = document.getElementById('fld_llm_api_key').value.trim();
+  envMap['LLM_BASE_URL'] = document.getElementById('fld_llm_base_url').value.trim();
+  envMap['LLM_MODEL'] = document.getElementById('fld_llm_model').value.trim();
+  envMap['POLYU_NET_ID'] = document.getElementById('fld_polyu_net_id').value.trim();
+  envMap['POLYU_PASSWORD'] = document.getElementById('fld_polyu_password').value.trim();
+
+  // Build .env text
+  const envOrder = ['EMAIL', 'EMAIL_PASSWORD', 'LLM_PROVIDER', 'LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL', 'POLYU_NET_ID', 'POLYU_PASSWORD'];
+  let newEnv = '';
+  envOrder.forEach(k => { if (envMap[k] !== undefined) newEnv += k + '=' + envMap[k] + '\n'; });
+  // Add any extra keys not in order
+  Object.keys(envMap).forEach(k => { if (!envOrder.includes(k)) newEnv += k + '=' + envMap[k] + '\n'; });
+
+  // Build config.yaml (preserve existing, update fields)
+  let yaml = document.getElementById('yamlEditor').value;
+  // Update cv_pdf_path
+  const cvPath = document.getElementById('fld_cv_pdf_path').value.trim();
+  if (cvPath) {
+    if (yaml.match(/^cv_pdf_path:/m)) {
+      yaml = yaml.replace(/^cv_pdf_path:.*$/m, 'cv_pdf_path: ' + cvPath);
+    } else {
+      yaml = 'cv_pdf_path: ' + cvPath + '\n' + yaml;
+    }
+  }
+  // Update search_keywords
+  const kwText = document.getElementById('fld_search_keywords').value.trim();
+  if (kwText) {
+    const kwLines = kwText.split('\n').map(k => '  - ' + k.trim()).join('\n');
+    if (yaml.match(/^search_keywords:/m)) {
+      // Replace entire search_keywords block
+      yaml = yaml.replace(/^search_keywords:\s*\n(?:(?:  - .+\n?)*)/m, 'search_keywords:\n' + kwLines + '\n');
+    } else {
+      yaml += '\nsearch_keywords:\n' + kwLines + '\n';
+    }
+  }
+
+  // Save via API
   const res = await fetch("/api/settings", {
     method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({env, config_yaml: yaml}),
+    body: JSON.stringify({env: newEnv, config_yaml: yaml}),
   });
   if (res.ok) {
-    document.getElementById("settingsMsg").textContent = "✅ Saved!";
-    document.getElementById("settingsMsg").style.color = "var(--green)";
-    setTimeout(() => closeModal("settingsModal"), 800);
+    document.getElementById('settingsMsg').textContent = '✅ Saved!';
+    document.getElementById('settingsMsg').style.color = 'var(--green)';
+    setTimeout(() => closeModal('settingsModal'), 800);
+    // Refresh config status in header
+    checkConfig();
   } else {
     const d = await res.json();
-    document.getElementById("settingsMsg").textContent = "❌ " + (d.error || "Failed");
-    document.getElementById("settingsMsg").style.color = "var(--red)";
+    document.getElementById('settingsMsg').textContent = '❌ ' + (d.error || 'Failed');
+    document.getElementById('settingsMsg').style.color = 'var(--red)';
   }
 }
+
 function closeModal(id) { document.getElementById(id).classList.remove("show"); }
 
 // ── Toast ──
