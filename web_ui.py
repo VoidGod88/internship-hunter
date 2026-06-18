@@ -593,6 +593,15 @@ async def api_run(
 
     _write_status({"status": "running", "phase": "init", "message": "Starting..."})
     global _last_log_position
+
+    # Clear log file on fresh restart for clean output
+    if fresh:
+        try:
+            log_path = BASE_DIR / "hunter.log"
+            log_path.write_text("", encoding="utf-8")
+        except Exception:
+            pass
+
     _last_log_position = 0  # reset log position on new pipeline
     try:
         _pipeline_proc = subprocess.Popen(
@@ -1420,6 +1429,12 @@ async function restartPipeline() {
   const btn = document.getElementById("btnRestart");
   if (btn) { btn.disabled = true; btn.textContent = "🔄 Restarting..."; }
   toast("Restarting: stopping current run + clearing data...", "success");
+
+  // Clear log display immediately
+  logBuffer = "";
+  const logBox = document.getElementById("logBox");
+  if (logBox) logBox.textContent = "";
+
   try {
     // Stop if running
     await fetch("/api/stop", { method: "POST" }).catch(()=>{});

@@ -18,6 +18,91 @@ LOGIN_URL = "https://jobboard-sao.polyu.edu.hk/login?callbackUrl=/"
 JOBS_URL = "https://jobboard-sao.polyu.edu.hk/jobs"
 
 
+def _accept_terms(page) -> bool:
+    """Accept the Terms & Conditions modal (2 checkboxes + Continue button)."""
+    try:
+        # Check if T&C modal exists
+        tc_modal = page.query_selector('text=Terms and Conditions')
+        if not tc_modal:
+            # Try alternative selectors
+            tc_modal = page.query_selector('[class*="modal"], [class*="dialog"], [role="dialog"]')
+
+        if not tc_modal:
+            log.info("[PolyU] No T&C modal found, proceeding...")
+            return True
+
+        log.info("[PolyU] Found T&C modal, accepting terms...")
+
+        # Wait a moment for modal to fully render
+        page.wait_for_timeout(1000)
+
+        # Click both checkboxes
+        checkbox_selectors = [
+            'input[type="checkbox"]',
+            '[role="checkbox"]',
+            'label:has-text("I have read and agree")',
+            'label:has-text("I declare that")',
+            '[class*="checkbox"]',
+        ]
+
+        clicked = 0
+        for sel in checkbox_selectors:
+            try:
+                checkboxes = page.query_selector_all(sel)
+                for cb in checkboxes:
+                    # Check if it's already checked
+                    is_checked = cb.evaluate("el => el.checked || el.getAttribute('aria-checked') === 'true'")
+                    if not is_checked:
+                        cb.click()
+                        page.wait_for_timeout(300)
+                        clicked += 1
+                    else:
+                        clicked += 1
+            except Exception:
+                continue
+
+        log.info("[PolyU] Clicked %d checkbox elements", clicked)
+
+        if clicked < 2:
+            log.warning("[PolyU] Expected 2 checkboxes but only found/clicked %d", clicked)
+            # Try clicking by text/position as fallback
+            try:
+                page.click('label:has-text("agree")', timeout=3000)
+                page.wait_for_timeout(500)
+                page.click('label:has-text("declare")', timeout=3000)
+                page.wait_for_timeout(500)
+                log.info("[PolyU] Used fallback label click")
+            except Exception as e:
+                log.warning("[PolyU] Fallback click failed: %s", e)
+
+        # Click "Continue to access PolyU Job Board" button
+        continue_selectors = [
+            'button:has-text("Continue")',
+            'button:has-text("Continue to access")',
+            'a:has-text("Continue to access")',
+            'button[type="submit"]:has-text("Continue")',
+            '[class*="btn"]:has-text("Continue")',
+        ]
+
+        for sel in continue_selectors:
+            try:
+                btn = page.query_selector(sel)
+                if btn:
+                    btn.click()
+                    log.info("[PolyU] Clicked Continue button")
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                    return True
+            except Exception:
+                continue
+
+        log.error("[PolyU] Could not find Continue button")
+        return False
+
+    except Exception as e:
+        log.error("[PolyU] T&C acceptance error: %s", e)
+        return False
+
+
 def _login(page) -> bool:
     """Login to PolyU job board. Returns True on success."""
     net_id = config.polyu_net_id.strip()
@@ -46,6 +131,11 @@ def _login(page) -> bool:
             return False
 
         log.info("[PolyU] Login successful")
+
+        # Accept Terms & Conditions modal
+        if not _accept_terms(page):
+            log.warning("[PolyU] Failed to accept T&C, but continuing...")
+
         return True
     except Exception as e:
         log.error(f"[PolyU] Login error: {e}")
@@ -134,6 +224,9 @@ def scrape_polyu(page, keywords: list[str] = None, max_pages: int = 3) -> list:
     try:
         page.goto(JOBS_URL, timeout=30000)
         page.wait_for_load_state("networkidle", timeout=30000)
+
+        # T&C modal might appear again on first visit
+        _accept_terms(page)
     except Exception as e:
         log.warning(f"[PolyU] Failed to load jobs page: {e}")
         # Try current page (might already be on jobs page after login)
