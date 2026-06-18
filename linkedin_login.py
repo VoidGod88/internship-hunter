@@ -2,8 +2,8 @@
 linkedin_login.py — Interactive LinkedIn manual login helper.
 
 Launches a HEADED Playwright browser, waits for the user to manually
-log in (including solving Cloudflare challenges), then automatically
-detects successful login and saves cookies to cookies/linkedin.json.
+log in (including solving Cloudflare challenges), then saves cookies
+after user confirms by pressing Enter.
 
 Usage:
     python linkedin_login.py
@@ -22,33 +22,6 @@ logging.basicConfig(
 log = logging.getLogger("hunter")
 
 COOKIE_PATH = Path(__file__).parent / "cookies" / "linkedin.json"
-POLL_INTERVAL = 3       # seconds between login checks
-LOGIN_TIMEOUT = 600      # 10 minutes max to log in
-
-
-def _is_logged_in(page) -> bool:
-    """Check if the current page shows a logged-in LinkedIn session."""
-    url = page.url
-    # Not logged in: still on auth pages
-    if any(p in url for p in ["/login", "/checkpoint", "/authwall", "/challenge", "/signup"]):
-        return False
-    # Logged in: URL contains feed / mynetwork / jobs / notifications / dashboard etc.
-    logged_in_urls = ["/feed", "/mynetwork", "/jobs", "/notifications", "/dashboard", "/in/", "/messaging"]
-    if any(p in url for p in logged_in_urls):
-        return True
-    # Check for logged-in UI elements (global nav bar) — more reliable than URL
-    try:
-        # LinkedIn's global nav has specific data attributes
-        nav = page.query_selector("[data-test-global-nav], nav.global-nav, .c-global-nav")
-        if nav:
-            return True
-        # Check for "Start a post" button (only visible when logged in)
-        post_btn = page.query_selector("button[aria-label*='Start a post'], [data-control-name='share.post']")
-        if post_btn:
-            return True
-    except Exception:
-        pass
-    return False
 
 
 def main():
@@ -56,15 +29,14 @@ def main():
     print("  LinkedIn Manual Login Helper")
     print("=" * 60)
     print()
-    print("  A browser window will open.")
-    print("  1. Manually log in to LinkedIn")
-    print("  2. Complete any Cloudflare challenges if prompted")
-    print("  3. After successful login, wait 5-10 seconds for auto-detection")
-    print("  4. The browser will close automatically after cookies are saved")
+    print("  Instructions:")
+    print("  1. A browser window will open")
+    print("  2. Manually log in to LinkedIn")
+    print("  3. Complete any Cloudflare challenges if prompted")
+    print("  4. After successful login, come back to this terminal")
+    print("  5. Press Enter to save cookies")
     print()
-    print("  If auto-detection fails: close the browser manually,")
-    print("  and cookies will be saved on next run.")
-    print("=" * 60)
+    print("  " + "=" * 56)
     print()
 
     with sync_playwright() as pw:
@@ -91,44 +63,34 @@ def main():
 
         # Go to LinkedIn login page
         page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30_000)
-        log.info(f"Browser opened: {page.url}")
-        print(f"  [Opened] {page.url}")
-        print("  ... waiting for you to log in ...")
-        print("  (Check the browser window — you may need to solve a Cloudflare challenge)")
+        print(f"  [Opened] Browser opened: {page.url}")
         print()
+        print("  >>> Please log in to LinkedIn in the browser window <<<")
+        print("  >>> After login is complete, press Enter here <<<")
+        print()
+        print("  " + "-" * 56)
 
-        start = time.time()
-        logged_in = False
-        last_url = ""
+        # Wait for user to press Enter
+        input("  Press Enter after you have logged in... ")
 
-        while time.time() - start < LOGIN_TIMEOUT:
-            time.sleep(POLL_INTERVAL)
-            try:
-                current_url = page.url
-                # Log URL changes for debugging
-                if current_url != last_url:
-                    log.info(f"URL changed: {current_url}")
-                    last_url = current_url
-                if _is_logged_in(page):
-                    print(f"\n  [Detected] Logged in! URL={page.url}")
-                    log.info("LinkedIn login detected — saving cookies")
-                    logged_in = True
-                    break
-            except Exception as e:
-                log.debug(f"Login check error: {e}")
-            # Still waiting
-            elapsed = int(time.time() - start)
-            print(f"  ... waiting ({elapsed}s / {LOGIN_TIMEOUT}s) — URL: {page.url[:80]} ...", end="\r")
+        # Verify login was successful
+        print()
+        print("  Checking login status...")
+        current_url = page.url
+        log.info(f"URL after login: {current_url}")
 
-        if not logged_in:
-            print("\n\n  [Timeout] Login was not detected within 10 minutes.")
-            print("  Please try again, or manually log in and THEN run the scraper.")
-            print("  (The scraper will try to use any existing session cookies.)\n")
-            browser.close()
-            return
+        if "/login" in current_url or "/checkpoint" in current_url or "/authwall" in current_url:
+            print()
+            print("  [Warning] You may not be fully logged in yet.")
+            print(f"  Current URL: {current_url}")
+            confirm = input("  Still save cookies anyway? (y/n): ")
+            if confirm.strip().lower() != "y":
+                print("  Aborted. Cookies NOT saved.")
+                browser.close()
+                return
 
         # Give a moment for session cookies to settle
-        print("\n  Logging in detected! Waiting 5 seconds for cookies to settle...\n")
+        print("  Waiting 5 seconds for cookies to settle...\n")
         time.sleep(5)
 
         # Save cookies + localStorage + sessionStorage

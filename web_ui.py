@@ -732,7 +732,7 @@ async def api_upload_cv(file: UploadFile = File(...)):
 
 @app.post("/api/linkedin-login")
 async def api_linkedin_login():
-    """Launch linkedin_login.py as a subprocess (opens a headed browser for manual login)."""
+    """Launch linkedin_login.py in a NEW terminal window (so user can see browser + prompts)."""
     global _linkedin_login_proc
     # If already running, don't launch again
     if _linkedin_login_proc and _linkedin_login_proc.poll() is None:
@@ -741,14 +741,16 @@ async def api_linkedin_login():
     _linkedin_login_proc = None
     login_script = str(BASE_DIR / "linkedin_login.py")
     try:
-        # Must NOT use CREATE_NO_WINDOW — the login script needs to open a visible browser
-        # Also don't suppress stdout/stderr — user needs to see login progress in run.bat console
+        # Open a NEW terminal window so user can see prompts and interact
+        py = sys.executable
+        cmd = f'start "LinkedIn Login" cmd /k "{py}" "{login_script}"'
         _linkedin_login_proc = subprocess.Popen(
-            [sys.executable, login_script],
+            cmd,
+            shell=True,
             cwd=str(BASE_DIR),
         )
-        log.info(f"LinkedIn login script started PID={_linkedin_login_proc.pid}")
-        return JSONResponse({"success": True, "pid": _linkedin_login_proc.pid})
+        log.info(f"LinkedIn login script started (new window)")
+        return JSONResponse({"success": True})
     except Exception as e:
         log.exception("Failed to start LinkedIn login script")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -1041,7 +1043,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <button class="btn btn-outline" onclick="generateKeywords(this)" title="Generate keywords from CV">🪄 CV Keywords</button>
       <button class="btn btn-outline" onclick="document.getElementById('cvFileInput').click()" title="Upload your CV PDF">📄 Upload CV</button>
       <input type="file" id="cvFileInput" accept=".pdf" style="display:none" onchange="uploadCV(this)">
-      <button class="btn btn-outline" onclick="linkedinLogin()" title="Open browser to manually log in to LinkedIn (saves cookies for scraping)">🔐 LinkedIn Login</button>
+      <button class="btn btn-outline" onclick="linkedinLogin()" title="Open browser to manually log in to LinkedIn (press Enter in terminal to save cookies)">🔐 LinkedIn Login</button>
       <button class="btn btn-outline" onclick="polyuLogin()" title="Open browser to manually log in to PolyU Job Board (saves cookies)">🏫 PolyU Login</button>
     </div>
   </div>
@@ -1529,7 +1531,7 @@ async function linkedinLogin() {
     const res = await fetch("/api/linkedin-login", { method: "POST" });
     const data = await res.json();
     if (res.ok) {
-      toast("Browser opened! Please log in to LinkedIn manually. Cookies auto-saved after login.", "success");
+      toast("Browser opening! Please log in to LinkedIn, then press Enter in the terminal to save cookies.", "success");
     } else {
       toast("Error: " + (data.error || "Failed to launch browser"), "error");
     }
