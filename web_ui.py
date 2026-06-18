@@ -636,8 +636,8 @@ async def api_get_config():
         config_warnings.append("Email not configured")
     if not cfg.llm_api_key or "your_api_key" in cfg.llm_api_key:
         config_warnings.append("LLM API key not configured")
-    if not cfg.cv_pdf_path or "path/to" in cfg.cv_pdf_path:
-        config_warnings.append("CV PDF path not set")
+    if not cfg.cv_pdf_path or "path/to" in cfg.cv_pdf_path or (cfg.cv_pdf_path and not os.path.exists(cfg.cv_pdf_path)):
+        config_warnings.append("CV PDF not found — please upload or set cv_pdf_path")
     return JSONResponse({"env": env_text, "config_yaml": yaml_text, "warnings": config_warnings})
 
 
@@ -650,6 +650,45 @@ async def api_clear_log():
         global _log_file_position
         _log_file_position = 0
         return JSONResponse({"success": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/upload-cv")
+async def api_upload_cv(file: UploadFile = File(...)):
+    """Upload CV PDF and update config.yaml."""
+    try:
+        # Save uploaded file
+        filename = file.filename
+        if not filename.lower().endswith(".pdf"):
+            return JSONResponse({"error": "Only PDF files are allowed"}, status_code=400)
+
+        save_path = BASE_DIR / filename
+        content = await file.read()
+        save_path.write_bytes(content)
+
+        # Update config.yaml with new path
+        yaml_path = BASE_DIR / "config.yaml"
+        if yaml_path.exists():
+            yaml_text = yaml_path.read_text(encoding="utf-8")
+            # Replace cv_pdf_path line
+            lines = yaml_text.split("\n")
+            new_lines = []
+            for line in lines:
+                if line.strip().startswith("cv_pdf_path:"):
+                    new_lines.append(f'cv_pdf_path: {save_path}')
+                else:
+                    new_lines.append(line)
+            yaml_path.write_text("\n".join(new_lines), encoding="utf-8")
+
+        # Reload config
+        from importlib import reload
+        import config
+        reload(config)
+        global cfg
+        from config import config as cfg
+
+        return JSONResponse({"success": True, "path": str(save_path)})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -811,7 +850,11 @@ select.input-sm { min-width:200px; cursor:pointer; }
     <span class="status-dot idle" id="statusDot"></span>
     <h1>🎯 Internship Hunter</h1>
     <span id="headerStatus">Idle</span>
-    <div class="progress-bar" style="flex:1;max-width:300px;margin-left:auto" id="progressBarOuter">
+    <div style="display:flex;gap:8px;align-items:center;margin-left:auto;font-size:12px">
+      <span id="cvStatus" style="color:var(--muted)">📄 CV: checking...</span>
+      <span id="emailStatus" style="color:var(--muted)">✉️ Email: checking...</span>
+    </div>
+    <div class="progress-bar" style="flex:1;max-width:300px;margin-left:16px" id="progressBarOuter">
       <div class="progress-fill" id="progressFill"></div>
     </div>
   </div>
@@ -913,6 +956,8 @@ select.input-sm { min-width:200px; cursor:pointer; }
     </div>
     <div class="control-group">
       <button class="btn btn-outline" onclick="generateKeywords(this)" title="Generate keywords from CV">🪄 CV Keywords</button>
+      <button class="btn btn-outline" onclick="document.getElementById('cvFileInput').click()" title="Upload your CV PDF">📄 Upload CV</button>
+      <input type="file" id="cvFileInput" accept=".pdf" style="display:none" onchange="uploadCV(this)">
       <button class="btn btn-outline" onclick="linkedinLogin()" title="Open browser to manually log in to LinkedIn (saves cookies for scraping)">🔐 LinkedIn Login</button>
     </div>
   </div>
@@ -1269,6 +1314,15 @@ async function restartPipeline() {
 }
 
 async function generateKeywords(btn) {
+  // Check if CV is available first
+  const res0 = await fetch("/api/config");
+  if (res0.ok) {
+    const d = await res0.json();
+    if (d.warnings && d.warnings.some(w => w.includes("CV PDF"))) {
+      toast("⚠️ CV PDF not found! Please upload your CV first (📄 Upload CV button)", "error");
+      return;
+    }
+  }
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Calling LLM..."; }
   try {
     const res = await fetch("/api/keywords-from-cv", { method: "POST" });
@@ -1294,6 +1348,57 @@ async function linkedinLogin() {
       toast("Error: " + (data.error || "Failed to launch browser"), "error");
     }
   } catch(e) { toast("Error: " + e.message, "error"); }
+}
+
+async function uploadCV(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    toast("Only PDF files are allowed", "error");
+    return;
+  }
+  const fd = new FormData();
+  fd.set("file", file);
+  try {
+    const res = await fetch("/api/upload-cv", { method: "POST", body: fd });
+    const data = await res.json();
+    if (res.ok) {
+      toast("CV uploaded: " + file.name, "success");
+      // Refresh config warnings
+      checkConfig();
+    } else {
+      toast(data.error || "Upload failed", "error");
+    }
+  } catch(e) {
+    toast("Upload error: " + e.message, "error");
+  }
+  // Reset input so user can upload same file again
+  input.value = "";
+}
+
+async function checkConfig() {
+  const res = await fetch("/api/config");
+  if (res.ok) {
+    const d = await res.json();
+    // Update CV status
+    const cvEl = document.getElementById("cvStatus");
+    if (d.warnings && d.warnings.some(w => w.includes("CV PDF"))) {
+      cvEl.textContent = "📄 CV: ❌ missing";
+      cvEl.style.color = "var(--red)";
+    } else {
+      cvEl.textContent = "📄 CV: ✅ loaded";
+      cvEl.style.color = "var(--green)";
+    }
+    // Update email status
+    const emailEl = document.getElementById("emailStatus");
+    if (d.warnings && d.warnings.some(w => w.includes("Email"))) {
+      emailEl.textContent = "✉️ Email: ❌ not configured";
+      emailEl.style.color = "var(--red)";
+    } else {
+      emailEl.textContent = "✉️ Email: ✅ ready";
+      emailEl.style.color = "var(--green)";
+    }
+  }
 }
 
 // ── UI Updates ──
@@ -1366,6 +1471,11 @@ function toast(msg, type) {
 // ── Keyboard shortcut ──
 document.addEventListener("keydown", e => {
   if (e.ctrlKey && e.key === ",") { e.preventDefault(); openSettings(); }
+});
+
+// ── Init ──
+window.addEventListener("load", () => {
+  checkConfig();
 });
 </script>
 </body>
