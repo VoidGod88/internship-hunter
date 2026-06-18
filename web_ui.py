@@ -17,26 +17,53 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-import uvicorn
+# ── Check dependencies early ──
+try:
+    from fastapi import FastAPI, Form, Request
+    from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+    import uvicorn
+except ImportError as e:
+    print("=" * 60)
+    print("ERROR: Missing required dependencies!")
+    print(f"  {e}")
+    print("")
+    print("Please install dependencies first:")
+    print("  pip install fastapi uvicorn python-dotenv pyyaml")
+    print("  pip install requests beautifulsoup4 playwright openai PyPDF2")
+    print("")
+    print("Or run: pip install -r requirements.txt")
+    print("=" * 60)
+    sys.exit(1)
 
 # ── Project imports ──
 sys.path.insert(0, str(Path(__file__).parent))
-from database import (  # noqa: E402
-    get_all_jobs,
-    get_application_history,
-    insert_cover_letter,
-    get_cover_letter,
-    update_job_cv_match,
-    update_job_description,
-)
-from config import config as cfg  # noqa: E402
-from ai_writer import generate_cover_letter  # noqa: E402
-from cv_reader import get_cv_keywords, load_cv_profile  # noqa: E402
-from fetch_job_detail import fetch_job_detail  # noqa: E402
-from mailer import send_email  # noqa: E402
-import database as _db
+try:
+    from database import (  # noqa: E402
+        get_all_jobs,
+        get_application_history,
+        insert_cover_letter,
+        get_cover_letter,
+        update_job_cv_match,
+        update_job_description,
+    )
+    from config import config as cfg  # noqa: E402
+    from ai_writer import generate_cover_letter  # noqa: E402
+    from cv_reader import get_cv_keywords, load_cv_profile  # noqa: E402
+    from fetch_job_detail import fetch_job_detail  # noqa: E402
+    from mailer import send_email  # noqa: E402
+    import database as _db
+except ImportError as e:
+    print("=" * 60)
+    print("ERROR: Failed to import project modules!")
+    print(f"  {e}")
+    print("")
+    print("This usually means:")
+    print("  1. Some dependencies are missing")
+    print("  2. Or the project files are incomplete")
+    print("")
+    print("Try: pip install -r requirements.txt")
+    print("=" * 60)
+    sys.exit(1)
 
 # ── Paths ──
 BASE_DIR = Path(__file__).parent.resolve()
