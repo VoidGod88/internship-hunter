@@ -28,12 +28,14 @@ start "InternshipHunter" "%PYTHON%" web_ui.py
 set /a attempts=0
 :waitloop
 set /a attempts+=1
-if %attempts% gtr 30 (
-    echo   ERROR: Server did not start within 15 seconds
+if %attempts% gtr 60 (
+    echo   ERROR: Server did not start within 30 seconds
+    echo   Check hunter.log for errors
     pause
     exit /b 1
 )
-powershell -Command "try { $s = Test-NetConnection -ComputerName 127.0.0.1 -Port 7861 -InformationLevel Quiet -ErrorAction SilentlyContinue; if (-not $s) { exit 1 } } catch { exit 1 }" 2>nul
+:: Use simpler port check (compatible with more PowerShell versions)
+powershell -Command "try { $tcp = New-Object System.Net.Sockets.TcpClient; $result = $tcp.BeginConnect('127.0.0.1', 7861, $null, $null); $wait = $result.AsyncWaitHandle.WaitOne(500, $false); if ($wait) { $tcp.EndConnect($result); $tcp.Close(); exit 0 } else { $tcp.Close(); exit 1 } } catch { exit 1 }" 2>nul
 if errorlevel 1 (
     timeout /t 1 /nobreak >nul 2>&1
     goto waitloop
