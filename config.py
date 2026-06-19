@@ -23,6 +23,13 @@ except ImportError:
 BASE_DIR = Path(__file__).parent
 ENV_PATH = BASE_DIR / ".env"
 CONFIG_PATH = BASE_DIR / "config.yaml"
+STOP_FLAG_PATH = BASE_DIR / "stop.flag"
+
+def check_stop():
+    """Raise InterruptedError if stop.flag exists. Call in long loops."""
+    if STOP_FLAG_PATH.exists():
+        STOP_FLAG_PATH.unlink()  # delete so next run doesn't immediately stop
+        raise InterruptedError("Stop requested by user")
 
 # ── Auto-create config files if missing ──
 def _ensure_config_files():

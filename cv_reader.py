@@ -117,6 +117,38 @@ def _get_cache_key(pdf_path: str) -> str:
         return pdf_path
 
 
+
+# ── File cache for CV profile (persisted across server restarts) ──
+_cv_cache_dir = Path(__file__).parent / "data" / "cv_cache"
+_cv_cache_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _load_profile_from_file_cache(pdf_hash: str):
+    """Load cached CV profile from file."""
+    cache_file = _cv_cache_dir / f"{pdf_hash}.json"
+    if not cache_file.exists():
+        return None
+    try:
+        import json
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        log.info(f"[CV] Loaded profile from file cache: {cache_file.name}")
+        return data
+    except Exception as e:
+        log.warning(f"[CV] Failed to load file cache: {e}")
+        return None
+
+
+def _save_profile_to_file_cache(pdf_hash: str, profile: dict):
+    """Save CV profile to file cache."""
+    try:
+        import json
+        cache_file = _cv_cache_dir / f"{pdf_hash}.json"
+        cache_file.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+        log.info(f"[CV] Saved profile to file cache: {cache_file.name}")
+    except Exception as e:
+        log.warning(f"[CV] Failed to save file cache: {e}")
+
+
 def _call_llm_analysis(cv_text: str) -> Optional[dict]:
     """Send CV text to LLM and get structured profile."""
     if not config.llm_api_key:
@@ -194,10 +226,17 @@ def load_cv_profile(pdf_path: str, force_reload: bool = False) -> dict:
 
     cache_key = _get_cache_key(str(path))
 
-    # Check cache
+    # Check in-memory cache
     if not force_reload and cache_key in _profiles_cache:
-        log.info("[CV] Using cached profile")
+        log.info("[CV] Using in-memory cached profile")
         return _profiles_cache[cache_key]
+
+    # Check file cache (persisted across server restarts)
+    if not force_reload:
+        profile = _load_profile_from_file_cache(cache_key)
+        if profile:
+            _profiles_cache[cache_key] = profile
+            return profile
 
     # Step 1: Extract text
     cv_text = _pdf_to_text(str(path))
@@ -235,8 +274,9 @@ def load_cv_profile(pdf_path: str, force_reload: bool = False) -> dict:
     if "_raw_text" not in profile:
         profile["_raw_text"] = cv_text[:3000]
 
-    # Cache it
+    # Cache it (memory + file)
     _profiles_cache[cache_key] = profile
+    _save_profile_to_file_cache(cache_key, profile)
     return profile
 
 

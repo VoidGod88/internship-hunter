@@ -7,6 +7,7 @@ import time
 import random
 import logging
 from .base import BaseScraper
+from config import check_stop
 
 log = logging.getLogger("hunter")
 
@@ -69,8 +70,7 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
         base_url = (
             f"https://hk.indeed.com/jobs?"
             f"q={kw.replace(' ', '+')}"
-            f"&l=Hong+Kong"
-            f"&jt=internship"
+            f"&from=rnonboarding"
         )
         start = 0
         page_num = 0

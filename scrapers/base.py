@@ -3,8 +3,11 @@ scrapers/base.py — Shared scraper utilities.
 """
 import logging
 import os
+import random
+import time
 
 from models import Job
+from stealth import Stealth
 
 log = logging.getLogger("hunter")
 
@@ -40,34 +43,21 @@ class BaseScraper:
         )
 
     @staticmethod
-    def init_page(browser, load_cookies_file: str = None):
-        """Create a new page with realistic browser context + stealth JS.
+    def init_page(browser, load_cookies_file: str = None, use_stealth: bool = True):
+        """
+        Create a new page with realistic browser context + stealth JS.
 
         load_cookies_file: path to a JSON cookies file saved by
             context.storage_state(path="..."). If given and the file exists,
             the context will be created with those saved cookies (i.e. logged-in
             session, no need to solve Cloudflare again).
+        use_stealth: if True, apply comprehensive anti-detection techniques.
         """
-        # Stealth JS: mask the most common automation fingerprints
-        STEALTH_JS = """
-        () => {
-          Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-          Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-          Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en','zh-HK']});
-          const origGetContext = HTMLCanvasElement.prototype.getContext;
-          HTMLCanvasElement.prototype.getContext = function(...a) {
-            const c = origGetContext.apply(this, a);
-            if (a && a[0]==='2d') c.shadowBlur = 0;
-            return c;
-          };
-        }
-        """
+        # Pick a random realistic User-Agent
+        user_agent = Stealth.get_random_ua()
+
         launch_kwargs = dict(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
+            user_agent=user_agent,
             viewport={"width": 1440, "height": 900},
             locale="en-US",
             timezone_id="Asia/Hong_Kong",
@@ -79,7 +69,22 @@ class BaseScraper:
 
         ctx = browser.new_context(**launch_kwargs)
         page = ctx.new_page()
-        page.add_init_script(STEALTH_JS)
+
+        # Apply stealth techniques
+        if use_stealth:
+            Stealth.apply(page)
+            log.info(f"[Stealth] Applied (UA: {user_agent[:50]}...)")
+
         # Stash ctx on page so callers can save cookies later
         page._hunter_ctx = ctx
         return page
+
+    @staticmethod
+    def human_delay(min_sec: float = 1.5, max_sec: float = 4.0) -> float:
+        """
+        Sleep for a random duration (simulates human thinking time).
+        Returns: actual delay used (for logging)
+        """
+        delay = random.uniform(min_sec, max_sec)
+        time.sleep(delay)
+        return delay

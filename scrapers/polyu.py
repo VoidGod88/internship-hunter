@@ -10,7 +10,9 @@ Run `python polyu_login.py` once to manually log in and save cookies.
 import logging
 import time
 import re
+from pathlib import Path
 from config import config
+from config import check_stop
 
 log = logging.getLogger("hunter")
 
@@ -112,7 +114,19 @@ def _search_keyword(page, kw: str) -> list:
     if not searched:
         # No search box found — scrape all jobs and filter locally
         log.info(f"  [PolyU] No search box found, scraping all jobs for '{kw}' (local filter)")
-        return _scrape_all_and_filter(page, kw)
+        items = _scrape_all_and_filter(page, kw)
+        # Debug: save HTML if 0 items found
+        if not items:
+            debug_dir = Path(__file__).parent.parent / "debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            html_path = debug_dir / f"polyu_debug_{kw.replace(' ', '_')}.html"
+            try:
+                html_content = page.content()
+                html_path.write_text(html_content, encoding="utf-8")
+                log.warning(f"  [PolyU] 0 items for '{kw}' — saved debug HTML to: {html_path}")
+            except Exception as e:
+                log.warning(f"  [PolyU] Failed to save debug HTML: {e}")
+        return items
 
     # Scrape results after search
     return _scrape_current_page(page, kw)
@@ -305,9 +319,11 @@ def _scrape_all_and_filter(page, kw: str) -> list:
 
 def scrape_polyu(page, keywords: list[str] = None, max_pages: int = 3) -> list:
     """
-    Scrape PolyU job board, one keyword per search using the on-page search box.
-    - keywords: list of search keywords
-    - max_pages: max pages per keyword (not used currently, searches all results)
+    Scrape PolyU job board.
+    Strategy: Visit /jobs, click "View All" if present, infinite scroll to load all jobs,
+    then filter locally by keywords.
+    - keywords: list of search keywords (matched against title, company, description)
+    - max_pages: NOT USED (we scrape all jobs via infinite scroll)
     Returns list of Job objects.
     """
     from models import Job
@@ -315,33 +331,163 @@ def scrape_polyu(page, keywords: list[str] = None, max_pages: int = 3) -> list:
     if not keywords:
         keywords = ["intern"]  # default fallback
 
-    # Ensure we're logged in before searching
-    if not _ensure_on_jobs_page(page):
+    # Navigate to jobs page
+    log.info("[PolyU] Loading jobs page...")
+    try:
+        page.goto(JOBS_URL, timeout=30000)
+        page.wait_for_load_state("networkidle", timeout=30000)
+    except Exception as e:
+        log.error(f"[PolyU] Failed to load jobs page: {e}")
         return []
 
-    all_jobs = []
-    for kw in keywords:
-        log.info(f"[PolyU] Searching: {kw}")
-        items = _search_keyword(page, kw)
-        # Convert to Job objects
+    # Check if redirected to login
+    if "/login" in page.url:
+        log.warning("[PolyU] Not logged in! Please run: python polyu_login.py")
+        return []
+
+    # ── Click "View All" to go to the full paginated list page ──
+    view_all_clicked = False
+    try:
+        view_all_selectors = [
+            'a:has-text("View All")',
+            'a:has-text("VIEW ALL")',
+            'a:has-text("View all")',
+            'button:has-text("View All")',
+            '[class*="view-all"] a',
+            '[class*="viewAll"] a',
+            'a[href*="view-all"]',
+            'a[href*="viewAll"]',
+            'a[href*="all-jobs"]',
+        ]
+        for sel in view_all_selectors:
+            try:
+                btn = page.query_selector(sel)
+                if btn and btn.is_visible():
+                    log.info(f'[PolyU] Clicking "View All" (matched: {sel})...')
+                    btn.click()
+                    page.wait_for_load_state("networkidle", timeout=30000)
+                    page.wait_for_timeout(3000)
+                    log.info(f"[PolyU]   Now on: {page.url}")
+                    view_all_clicked = True
+                    break
+            except Exception:
+                continue
+        
+        if not view_all_clicked:
+            log.warning("[PolyU] No 'View All' button found! Scraping current page (limited results)")
+            # Save debug HTML
+            try:
+                debug_dir = Path(__file__).parent.parent / "debug"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                html_path = debug_dir / "polyu_homepage_no_view_all.html"
+                html_path.write_text(page.content(), encoding="utf-8")
+                log.warning(f"[PolyU]   Saved homepage HTML to: {html_path}")
+            except Exception:
+                pass
+    except Exception as e:
+        log.warning(f"[PolyU] Error clicking View All: {e}")
+
+    # Infinite scroll to load all jobs
+    log.info("[PolyU] Loading all jobs (infinite scroll)...")
+    all_items = []
+    seen_urls = set()
+    scroll_rounds = 0
+    max_scroll_rounds = 50
+
+    while scroll_rounds < max_scroll_rounds:
+        # Extract current items
+        items = page.evaluate("""
+            () => {
+                const out = [];
+                const selectors = [
+                    'a[href*="/job-posts"]', 'a[href*="/job/"]', 'a[href*="/jobs/"]',
+                    '[class*="job-card"] a', '[class*="jobCard"] a', 'article a', '.job-item a',
+                ];
+                let links = [];
+                for (const sel of selectors) {
+                    const found = document.querySelectorAll(sel);
+                    if (found.length > 0) { links = Array.from(found); break; }
+                }
+                if (links.length === 0) {
+                    links = Array.from(document.querySelectorAll('a')).filter(a => {
+                        const t = a.textContent.trim(); return t.length > 5 && t.length < 200;
+                    });
+                }
+                links.forEach(a => {
+                    const href = a.getAttribute('href') || '';
+                    if (!href || href === '#') return;
+                    const fullUrl = href.startsWith('http') ? href : window.location.origin + href;
+                    let title = '';
+                    const h3 = a.querySelector('h3'); const h2 = a.querySelector('h2'); const h4 = a.querySelector('h4');
+                    if (h3) title = h3.textContent.trim();
+                    else if (h2) title = h2.textContent.trim();
+                    else if (h4) title = h4.textContent.trim();
+                    else title = a.textContent.trim().split('\\n')[0].trim();
+                    let company = '';
+                    const card = a.closest('article, li, div[class*="card"], div[class*="item"]') || a.parentElement;
+                    if (card) {
+                        const comp = card.querySelector('[class*="company"], [class*="employer"]');
+                        if (comp) company = comp.textContent.trim();
+                    }
+                    if (title && title.length > 3) out.push({title, company, url: fullUrl});
+                });
+                const seen = new Set();
+                return out.filter(x => seen.has(x.url) ? false : (seen.add(x.url), true));
+            }
+        """)
+
+        # Add new items
+        new_count = 0
         for item in items:
-            all_jobs.append(Job(
-                title=item.get("title", ""),
-                company=item.get("company", "PolyU Job Board"),
-                location="Hong Kong",
-                url=item.get("url", ""),
-                source="PolyU",
-            ))
-        log.info(f"[PolyU] Searching: {kw} → {len(items)} jobs")
+            url = item.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                all_items.append(item)
+                new_count += 1
 
-    # Deduplicate by (title, company)
-    seen = set()
-    unique = []
-    for j in all_jobs:
-        key = (j.title.strip().lower(), j.company.strip().lower())
-        if key not in seen and j.title.strip():
-            seen.add(key)
-            unique.append(j)
+        log.info(f"[PolyU]   Scroll round {scroll_rounds+1}: {len(all_items)} total jobs")
 
-    log.info(f"[PolyU] Total: {len(unique)} jobs")
-    return unique
+        if new_count == 0:
+            log.info("[PolyU] No new jobs after scrolling, stopping.")
+            break
+
+        # Scroll down
+        page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        page.wait_for_timeout(2000)
+        scroll_rounds += 1
+
+    log.info(f"[PolyU] Loaded {len(all_items)} total jobs from PolyU")
+
+    # Filter locally by keywords
+    if keywords and keywords != ["intern"]:
+        filtered = []
+        for kw in keywords:
+            kw_words = [w.lower() for w in kw.split() if len(w) > 2]
+            for item in all_items:
+                title = (item.get("title") or "").lower()
+                company = (item.get("company") or "").lower()
+                if any(w in title or w in company for w in kw_words):
+                    if item not in filtered:
+                        filtered.append(item)
+        log.info(f"[PolyU] After keyword filter: {len(filtered)} jobs")
+        # If all filtered out, ignore filter and return all items
+        if filtered:
+            all_items = filtered
+        else:
+            log.warning("[PolyU] All jobs filtered out! Ignoring keyword filter, returning all jobs")
+    else:
+        log.info(f"[PolyU] No keyword filter applied, returning all {len(all_items)} jobs")
+
+    # Convert to Job objects
+    all_jobs = []
+    for item in all_items:
+        all_jobs.append(Job(
+            title=item.get("title", ""),
+            company=item.get("company", "PolyU Job Board"),
+            location="Hong Kong",
+            url=item.get("url", ""),
+            source="PolyU",
+        ))
+
+    log.info(f"[PolyU] Total: {len(all_jobs)} jobs")
+    return all_jobs

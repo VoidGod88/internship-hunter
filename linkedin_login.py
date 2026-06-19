@@ -73,21 +73,31 @@ def main():
         # Wait for user to press Enter
         input("  Press Enter after you have logged in... ")
 
-        # Verify login was successful
+        # Verify login was successful — navigate to feed to confirm
         print()
-        print("  Checking login status...")
-        current_url = page.url
-        log.info(f"URL after login: {current_url}")
+        print("  Verifying login status (navigating to feed)...")
+        try:
+            page.goto("https://www.linkedin.com/feed/", timeout=15_000, wait_until="domcontentloaded")
+            time.sleep(3)
+        except Exception as e:
+            log.warning(f"Navigation to feed failed: {e}")
 
+        current_url = page.url
+        log.info(f"URL after verification: {current_url}")
+
+        # Check if still on login page (not logged in)
         if "/login" in current_url or "/checkpoint" in current_url or "/authwall" in current_url:
             print()
-            print("  [Warning] You may not be fully logged in yet.")
+            print("  [Warning] You are NOT logged in.")
             print(f"  Current URL: {current_url}")
-            confirm = input("  Still save cookies anyway? (y/n): ")
+            print("  Please make sure you logged in in the PLAYWRIGHT browser window.")
+            confirm = input("  Save cookies anyway? (y/n): ")
             if confirm.strip().lower() != "y":
                 print("  Aborted. Cookies NOT saved.")
                 browser.close()
                 return
+        else:
+            print(f"  [OK] Logged in! URL: {current_url}")
 
         # Give a moment for session cookies to settle
         print("  Waiting 5 seconds for cookies to settle...\n")

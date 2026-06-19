@@ -8,6 +8,11 @@ powershell -Command "try { $p = Get-NetTCPConnection -LocalPort 7861 -State List
 powershell -Command "Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*web_ui.py*' -or $_.CommandLine -like '*app.py*' } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue; Write-Host ('  Killed orphaned python (PID=' + $_.Id + ')') }"
 timeout /t 2 /nobreak >nul 2>&1
 
+:: ── Step 0.5: Clear __pycache__ (prevent stale .pyc loading) ──
+echo [0.5/6] Clearing Python cache...
+for /d /r . %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d" 2>nul
+echo   Done.
+
 :: ── Step 1: Virtual env ──
 echo [2/6] Checking virtual environment...
 if not exist ".venv\Scripts\python.exe" (
