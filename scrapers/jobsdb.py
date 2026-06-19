@@ -6,7 +6,6 @@ One keyword per search, paginate until no next page.
 import time
 import random
 import logging
-import urllib.parse
 from .base import BaseScraper
 
 log = logging.getLogger("hunter")
@@ -70,95 +69,51 @@ def _go_to_next_page(page) -> bool:
     return False
 
 
-def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0) -> list:
+def _check_page_6(page, base_url: str) -> bool:
+    """
+    Quick probe: check if page 6 has job cards.
+    Navates to {base_url}?page=6 and checks for cards.
+    Returns True if cards found (page 6 exists).
+    """
+    try:
+        url = base_url + "?page=6"
+        log.info(f"[JobsDB]   Probing page 6: {url}")
+        page.goto(url, wait_until="domcontentloaded", timeout=15_000)
+        page.wait_for_timeout(3000)
+        cards = _query_selector_all_multi(page, CARD_SELECTORS)
+        has_page_6 = len(cards) > 0
+        log.info(f"[JobsDB]   Page 6 probe: {'found ' + str(len(cards)) + ' cards' if has_page_6 else 'no cards (no page 6)'}")
+        return has_page_6
+    except Exception as e:
+        log.info(f"[JobsDB]   Page 6 probe failed: {e}")
+        return False
+
+
+def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int = 0) -> list:
     """
     Scrape JobsDB HK for internship jobs.
-    One search per keyword, paginate until no next page.
+    URL format: /{keyword}-jobs-in-information-communication-technology/on-site[?daterange=7][&page=N]
+    Strategy: for each keyword, probe page 6 first.
+      - If page 6 has results → use daterange=7 for full scrape
+      - If page 6 has no results → use normal URL for full scrape
     """
     all_jobs = []
     log.info(f"[JobsDB] Searching {len(keywords)} keywords...")
 
     for kw in keywords:
-        kw_jobs = []
-        encoded_kw = urllib.parse.quote(kw)
-        base_url = f"https://hk.jobsdb.com/job-search?q={encoded_kw}&l=Hong+Kong"
-        page_num = 0
+        kw_slug = kw.lower().replace(" ", "-")
+        base_url = f"https://hk.jobsdb.com/{kw_slug}-jobs-in-information-communication-technology/on-site"
 
-        while True:
-            url = base_url
-            if page_num > 0:
-                url += f"&page={page_num + 1}"
+        # Probe page 6 to decide which URL to use
+        has_page_6 = _check_page_6(page, base_url)
+        if has_page_6:
+            log.info(f"[JobsDB]   {kw}: page 6 exists, using daterange=7")
+            scrape_url = base_url + "?daterange=7"
+        else:
+            log.info(f"[JobsDB]   {kw}: no page 6, using normal URL")
+            scrape_url = base_url
 
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-                page.wait_for_timeout(5000)
-
-                # Dismiss cookie/privacy popup
-                try:
-                    page.click("button:has-text('Accept'), button:has-text('同意')", timeout=3000)
-                except Exception:
-                    pass
-
-                page.keyboard.press("End")
-                page.wait_for_timeout(3000)
-
-                cards = _query_selector_all_multi(page, CARD_SELECTORS)
-                if not cards:
-                    break
-
-                for card in cards:
-                    try:
-                        title = ""
-                        for sel in TITLE_SELECTORS:
-                            title_el = card.query_selector(sel)
-                            if title_el:
-                                title = title_el.inner_text().strip()
-                                break
-                        if not title or len(title) < 3:
-                            full_text = card.inner_text().strip()
-                            lines = [l.strip() for l in full_text.split("\n") if l.strip()]
-                            title = lines[0][:120] if lines else ""
-
-                        if not title or len(title) < 3:
-                            continue
-
-                        company = ""
-                        for sel in COMPANY_SELECTORS:
-                            company_el = card.query_selector(sel)
-                            if company_el:
-                                company = company_el.inner_text().strip()
-                                break
-
-                        href = ""
-                        link_el = card.query_selector("a[href*='/job/']")
-                        if link_el:
-                            href = link_el.get_attribute("href") or ""
-                        else:
-                            href = card.get_attribute("href") or ""
-
-                        if href and not href.startswith("http"):
-                            href = "https://hk.jobsdb.com" + href
-                        job_url = href or ""
-
-                        if title and len(title) > 3:
-                            kw_jobs.append(BaseScraper.make_job(
-                                title, company, "Hong Kong", job_url, "JobsDB"
-                            ))
-
-                    except Exception:
-                        continue
-
-                if max_pages > 0 and page_num + 1 >= max_pages:
-                    break
-                if not _go_to_next_page(page):
-                    break
-
-                page_num += 1
-                time.sleep(random.uniform(2, 4))
-
-            except Exception:
-                break
-
+        kw_jobs = _scrape_jobsdb_keyword(page, kw, scrape_url, max_pages=0, max_jobs=0)
         all_jobs.extend(kw_jobs)
         log.info(f"[JobsDB] Searching: {kw} → {len(kw_jobs)} jobs")
         time.sleep(random.uniform(2, 4))
@@ -174,3 +129,85 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0) -> list:
 
     log.info(f"[JobsDB] Total: {len(unique)} jobs")
     return unique
+
+
+def _scrape_jobsdb_keyword(page, kw: str, base_url: str, max_pages: int = 0, max_jobs: int = 0) -> list:
+    """Scrape one keyword with a given base URL. Returns list of jobs."""
+    kw_jobs = []
+    page_num = 0
+
+    while True:
+        url = base_url
+        if page_num > 0:
+            sep = "&" if "?" in base_url else "?"
+            url += f"{sep}page={page_num + 1}"
+
+        try:
+            log.info(f"[JobsDB]   Fetching page {page_num + 1}: {url}")
+            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            page.wait_for_timeout(5000)
+
+            cards = _query_selector_all_multi(page, CARD_SELECTORS)
+            if not cards:
+                break
+
+            for card in cards:
+                try:
+                    title = ""
+                    for sel in TITLE_SELECTORS:
+                        title_el = card.query_selector(sel)
+                        if title_el:
+                            title = title_el.inner_text().strip()
+                            break
+                    if not title or len(title) < 3:
+                        full_text = card.inner_text().strip()
+                        lines = [l.strip() for l in full_text.split("\n") if l.strip()]
+                        title = lines[0][:120] if lines else ""
+
+                    if not title or len(title) < 3:
+                        continue
+
+                    company = ""
+                    for sel in COMPANY_SELECTORS:
+                        company_el = card.query_selector(sel)
+                        if company_el:
+                            company = company_el.inner_text().strip()
+                            break
+
+                    href = ""
+                    link_el = card.query_selector("a[href*='/job/']")
+                    if link_el:
+                        href = link_el.get_attribute("href") or ""
+                    else:
+                        href = card.get_attribute("href") or ""
+
+                    if href and not href.startswith("http"):
+                        href = "https://hk.jobsdb.com" + href
+                    job_url = href or ""
+
+                    if title and len(title) > 3:
+                        kw_jobs.append(BaseScraper.make_job(
+                            title, company, "Hong Kong", job_url, "JobsDB"
+                        ))
+                        # Stop if max_jobs reached
+                        if max_jobs > 0 and len(kw_jobs) >= max_jobs:
+                            break
+
+                except Exception:
+                    continue
+
+            if max_jobs > 0 and len(kw_jobs) >= max_jobs:
+                break
+
+            if max_pages > 0 and page_num + 1 >= max_pages:
+                break
+            if not _go_to_next_page(page):
+                break
+
+            page_num += 1
+            time.sleep(random.uniform(2, 4))
+
+        except Exception:
+            break
+
+    return kw_jobs

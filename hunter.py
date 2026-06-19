@@ -19,7 +19,7 @@ from typing import Optional
 
 from playwright.sync_api import sync_playwright
 
-from config import config
+from config import config, STOP_FLAG_PATH, check_stop
 from models import Job
 from database import (
     insert_job, get_all_jobs, get_application_history,
@@ -198,8 +198,24 @@ def run_scrapers(
     ])
     done = 0
 
+    # Delete any stale stop flag from previous run
+    if STOP_FLAG_PATH.exists():
+        try:
+            STOP_FLAG_PATH.unlink()
+            log.info('[Stop] Cleared stale stop flag')
+        except Exception:
+            pass
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
+
+        # Check stop flag
+        try:
+            check_stop()
+        except InterruptedError:
+            log.info('[Stop] Stop requested, exiting...')
+            browser.close()
+            return all_jobs
 
         # ── LinkedIn ──
         if config.scraper_linkedin:
@@ -226,6 +242,14 @@ def run_scrapers(
                 log.error(f"LinkedIn error: {e}")
             done += 1
 
+        # Check stop flag
+        try:
+            check_stop()
+        except InterruptedError:
+            log.info('[Stop] Stop requested, exiting...')
+            browser.close()
+            return all_jobs
+
         # ── PolyU Job Board ──
         if config.scraper_polyu:
             if progress_callback:
@@ -251,6 +275,14 @@ def run_scrapers(
                 log.error(f"PolyU error: {e}")
             done += 1
 
+        # Check stop flag
+        try:
+            check_stop()
+        except InterruptedError:
+            log.info('[Stop] Stop requested, exiting...')
+            browser.close()
+            return all_jobs
+
         # ── JobsDB ──
         if config.scraper_jobsdb:
             if progress_callback:
@@ -263,6 +295,14 @@ def run_scrapers(
                 log.error(f"JobsDB error: {e}")
             done += 1
 
+        # Check stop flag
+        try:
+            check_stop()
+        except InterruptedError:
+            log.info('[Stop] Stop requested, exiting...')
+            browser.close()
+            return all_jobs
+
         # ── Indeed ──
         if config.scraper_indeed:
             if progress_callback:
@@ -274,6 +314,14 @@ def run_scrapers(
             except Exception as e:
                 log.error(f"Indeed error: {e}")
             done += 1
+
+        # Check stop flag
+        try:
+            check_stop()
+        except InterruptedError:
+            log.info('[Stop] Stop requested, exiting...')
+            browser.close()
+            return all_jobs
 
         # ── eFinancialCareers ──
         if config.scraper_efc:
@@ -448,18 +496,26 @@ def main():
     args = parser.parse_args()
 
     # Apply args to config (only override if explicitly set)
-    if args.scraper_polyu is not None:
-        config.scraper_polyu = args.scraper_polyu
-    if args.scraper_linkedin is not None:
-        config.scraper_linkedin = args.scraper_linkedin
-    if args.scraper_jobsdb is not None:
-        config.scraper_jobsdb = args.scraper_jobsdb
-    if args.scraper_indeed is not None:
-        config.scraper_indeed = args.scraper_indeed
-    if args.scraper_efc is not None:
-        config.scraper_efc = args.scraper_efc
-    if args.scraper_manual is not None:
-        config.scraper_manual = args.scraper_manual
+    # If ANY scraper flag is explicitly set, treat all unset as disabled
+    _any_scraper_flagged = any([
+        args.scraper_polyu is not None,
+        args.scraper_linkedin is not None,
+        args.scraper_jobsdb is not None,
+        args.scraper_indeed is not None,
+        args.scraper_efc is not None,
+        args.scraper_manual is not None,
+    ])
+    if _any_scraper_flagged:
+        # Only run explicitly checked scrapers; disable all unchecked
+        config.scraper_polyu = args.scraper_polyu is True
+        config.scraper_linkedin = args.scraper_linkedin is True
+        config.scraper_jobsdb = args.scraper_jobsdb is True
+        config.scraper_indeed = args.scraper_indeed is True
+        config.scraper_efc = args.scraper_efc is True
+        config.scraper_manual = args.scraper_manual is True
+    else:
+        # No --scraper-* flags passed: use config.py defaults (all enabled)
+        pass
 
     # ── Fresh run: delete DB + status so we don't resume old data ──
     if args.fresh:

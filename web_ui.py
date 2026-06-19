@@ -401,12 +401,20 @@ async def api_job_detail_file(job_id: int):
 
 
 @app.post("/api/generate-cl/{job_id}")
-async def api_generate_cl(job_id: int):
+async def api_generate_cl(job_id: int, force: bool = False):
     try:
         jobs = get_all_jobs()
         job = next((j for j in jobs if j.get("id") == job_id), None)
         if not job:
             return JSONResponse({"error": "Job not found"}, status_code=404)
+
+        # ── Check cache first (unless forcing) ──
+        if not force:
+            existing_cl = get_cover_letter(job_id)
+            if existing_cl:
+                log.info(f"[Generate CL] Job {job_id}: using cached cover letter (force={force})")
+                return JSONResponse({"job_id": job_id, "cover_letter": existing_cl, "cached": True})
+
         cfg.reload_inplace()
         cl = await asyncio.to_thread(
             generate_cover_letter,
@@ -455,10 +463,12 @@ async def _evaluate_cv_match(cv_profile: dict, job: dict) -> dict:
             "  skills_match: bool\n"
             "  education_match: bool\n"
             "  major_match: bool\n"
+            "  experience_match: bool (false if job requires experience but candidate has none)\n"
             "  match_score: int (0-100)\n"
             "  reasons: string (short explanation in Chinese)\n"
             "  requires_final_year: bool (if job requires final-year students)\n"
-            "  candidate_is_final_year: bool (set to false if unknown)\n\n"
+            "  candidate_is_final_year: bool (set to false if unknown)\n"
+            "  requires_experience: bool (if job requires prior work experience, NOT internship)\n\n"
             f"CV Profile:\n{cv_text}\n\nJob:\n{job_text}"
         )
         resp = client.chat.completions.create(
@@ -479,12 +489,32 @@ async def _evaluate_cv_match(cv_profile: dict, job: dict) -> dict:
 
 
 @app.post("/api/evaluate/{job_id}")
-async def api_evaluate(job_id: int):
+async def api_evaluate(job_id: int, force: bool = False):
     try:
         jobs = get_all_jobs()
         job = next((j for j in jobs if j.get("id") == job_id), None)
         if not job:
             return JSONResponse({"error": "Job not found"}, status_code=404)
+
+        # ── Check cache first (unless forcing) ──
+        if not force and job.get("cv_match"):
+            try:
+                result = json.loads(job["cv_match"])
+                details = []
+                if not result.get("skills_match", True): details.append("技能不匹配")
+                if not result.get("education_match", True): details.append("学历不符")
+                if not result.get("major_match", True): details.append("专业不符")
+                if not result.get("experience_match", True): details.append("经验不足")
+                if result.get("requires_final_year", False) and not result.get("candidate_is_final_year", False):
+                    details.append("要求final year")
+                msg = f"✅ Cached — {'✅ Match' if result.get('overall_match') else '❌ Mismatch'} — {', '.join(details) or 'all checks passed'}"
+                log.info(f"[Evaluate] Job {job_id}: using cached result (force={force})")
+                return JSONResponse({"success": True, "result": result, "message": msg, "overall_match": result.get("overall_match", False), "cached": True})
+            except Exception as e:
+                log.warning(f"[Evaluate] Failed to parse cached cv_match for job {job_id}: {e}")
+                # Fall through to LLM call
+
+        cfg.reload_inplace()
         cv_profile = await asyncio.to_thread(load_cv_profile, cfg.cv_pdf_path, cfg)
         result = await _evaluate_cv_match(cv_profile, job)
         update_job_cv_match(job_id, json.dumps(result, ensure_ascii=False))
@@ -548,20 +578,32 @@ async def api_keywords_from_cv():
 @app.post("/api/run")
 async def api_run(
     keywords: str = Form(""),
-    fresh: bool = Form(False),
-    scraper_polyu: bool = Form(False),
-    scraper_linkedin: bool = Form(False),
-    scraper_jobsdb: bool = Form(False),
-    scraper_indeed: bool = Form(False),
-    scraper_efc: bool = Form(False),
-    scraper_manual: bool = Form(False),
+    fresh: str = Form("false"),
+    scraper_polyu: str = Form("false"),
+    scraper_linkedin: str = Form("false"),
+    scraper_jobsdb: str = Form("false"),
+    scraper_indeed: str = Form("false"),
+    scraper_efc: str = Form("false"),
+    scraper_manual: str = Form("false"),
 ):
+    # Parse bools explicitly (FastAPI bool field cannot parse "false" string)
+    def _b(v: str) -> bool:
+        return str(v).lower() == "true"
+
+    _fresh = _b(fresh)
+    _polyu = _b(scraper_polyu)
+    _linkedin = _b(scraper_linkedin)
+    _jobsdb = _b(scraper_jobsdb)
+    _indeed = _b(scraper_indeed)
+    _efc = _b(scraper_efc)
+    _manual = _b(scraper_manual)
+
     global _pipeline_proc, _pipeline_running
     if _pipeline_running:
         return JSONResponse({"error": "Pipeline already running"}, status_code=409)
 
     # Fresh run: delete DB + status BEFORE launching hunter.py
-    if fresh:
+    if _fresh:
         _db_path = BASE_DIR / "hunter.db"
         _status_path = Path(STATUS_FILE)
         _data_dir = BASE_DIR / "data"
@@ -575,21 +617,21 @@ async def api_run(
             log.info(f"[Fresh] Deleted {_data_dir}")
 
     cmd = [sys.executable, HUNTER_SCRIPT, "--status-file", STATUS_FILE]
-    if fresh:
+    if _fresh:
         cmd.append("--fresh")
     if keywords.strip():
         cmd += ["--keywords", keywords.strip()]
-    if scraper_polyu:
+    if _polyu:
         cmd.append("--scraper-polyu")
-    if scraper_linkedin:
+    if _linkedin:
         cmd.append("--scraper-linkedin")
-    if scraper_jobsdb:
+    if _jobsdb:
         cmd.append("--scraper-jobsdb")
-    if scraper_indeed:
+    if _indeed:
         cmd.append("--scraper-indeed")
-    if scraper_efc:
+    if _efc:
         cmd.append("--scraper-efc")
-    if scraper_manual:
+    if _manual:
         cmd.append("--scraper-manual")
 
     _write_status({"status": "running", "phase": "init", "message": "Starting..."})
@@ -623,15 +665,50 @@ async def api_stop():
     global _pipeline_proc, _pipeline_running
     if not _pipeline_running or not _pipeline_proc:
         return JSONResponse({"error": "No pipeline running"}, status_code=400)
+
+    # 1. Write stop flag (graceful stop for hunter.py)
     try:
-        _pipeline_proc.terminate()
-        try:
-            _pipeline_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            _pipeline_proc.kill()
-            _pipeline_proc.wait(timeout=3)
+        from config import STOP_FLAG_PATH
+        STOP_FLAG_PATH.write_text("stop", encoding="utf-8")
+        log.info("[Stop] Stop flag written")
     except Exception as e:
-        log.warning(f"Stop error: {e}")
+        log.warning(f"[Stop] Failed to write stop flag: {e}")
+
+    # 2. Kill process tree (force stop - kills Chromium children too)
+    pid = _pipeline_proc.pid
+    if pid:
+        if sys.platform == "win32":
+            # Use taskkill to kill entire process tree (including Chromium)
+            try:
+                kill_result = subprocess.run(
+                    f"taskkill /F /T /PID {pid}",
+                    shell=True, capture_output=True, text=True,
+                    timeout=10,
+                )
+                log.info(f"[Stop] taskkill /F /T /PID {pid}: {kill_result.stdout.strip()}")
+                if kill_result.stderr:
+                    log.warning(f"[Stop] taskkill stderr: {kill_result.stderr.strip()}")
+            except Exception as e:
+                log.warning(f"[Stop] taskkill failed: {e}")
+                # Fallback to terminate/kill
+                _pipeline_proc.terminate()
+                try:
+                    _pipeline_proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    _pipeline_proc.kill()
+                    _pipeline_proc.wait(timeout=3)
+        else:
+            # Linux/Mac: use process group kill
+            import os
+            try:
+                os.killpg(os.getpgid(pid), 9)
+            except Exception:
+                _pipeline_proc.terminate()
+                try:
+                    _pipeline_proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    _pipeline_proc.kill()
+
     _pipeline_running = False
     _pipeline_proc = None
     _write_status({"status": "stopped", "phase": "stopped", "message": "Stopped by user"})
@@ -743,7 +820,7 @@ async def api_linkedin_login():
     try:
         # Open a NEW terminal window so user can see prompts and interact
         py = sys.executable
-        cmd = f'start "LinkedIn Login" cmd /k "{py}" "{login_script}"'
+        cmd = f'start "LinkedIn Login" cmd /k ""{py}" "{login_script}""'
         _linkedin_login_proc = subprocess.Popen(
             cmd,
             shell=True,
@@ -944,13 +1021,16 @@ select.input-sm { min-width:200px; cursor:pointer; }
     </div>
   </div>
 
-  <!-- Slim top bar: job selector -->
+  <!-- Slim top bar: job selector + match overview -->
   <div class="top-bar-slim">
     <div>
       <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:3px">Select Job</label>
       <select id="jobSelector" onchange="onJobSelect()" style="min-width:360px">
         <option value="">— Select a job to view details —</option>
       </select>
+    </div>
+    <div style="display:flex;gap:6px;align-items:flex-end;margin-left:8px">
+      <button class="btn btn-outline btn-sm" id="btnMatchOverview" onclick="toggleMatchOverview()" style="white-space:nowrap">🤖 Match Overview</button>
     </div>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
       <button class="btn btn-outline btn-sm" onclick="openSettings()" title="Settings (Ctrl+,)">⚙️ Settings</button>
@@ -986,6 +1066,12 @@ select.input-sm { min-width:200px; cursor:pointer; }
           <button class="btn btn-green btn-sm" onclick="doSendEmail(this)">📧 Send Email</button>
         </div>
 
+        <!-- AI Evaluation (moved above description) -->
+        <div class="detail-section" id="evalSection" style="display:none">
+          <h3>🤖 AI Match Result</h3>
+          <div class="detail-text" id="evalResult"></div>
+        </div>
+
         <!-- Job Description -->
         <div class="detail-section">
           <h3>Job Description</h3>
@@ -994,14 +1080,8 @@ select.input-sm { min-width:200px; cursor:pointer; }
 
         <!-- AI Extracted Detail -->
         <div class="detail-section" id="structuredSection" style="display:none">
-          <h3>AI Extracted Detail</h3>
+          <h3>📑 AI Extracted Detail</h3>
           <div id="structuredContent"></div>
-        </div>
-
-        <!-- AI Evaluation -->
-        <div class="detail-section" id="evalSection" style="display:none">
-          <h3>AI Evaluation</h3>
-          <div class="detail-text" id="evalResult"></div>
         </div>
 
         <!-- Cover Letter -->
@@ -1014,6 +1094,34 @@ select.input-sm { min-width:200px; cursor:pointer; }
           </div>
           <textarea id="clEditor" style="display:none;width:100%;min-height:200px;margin-top:8px;font-family:monospace;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px"></textarea>
         </div>
+      </div>
+    </div>
+
+    <!-- Match Overview Panel (hidden by default) -->
+    <div class="detail-panel" id="matchOverviewPanel" style="display:none;flex-direction:column;min-height:350px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h2 style="font-size:16px">🤖 AI Match Overview</h2>
+        <button class="btn btn-outline btn-sm" onclick="closeMatchOverview()">✖ Close</button>
+      </div>
+      <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+        <span class="badge badge-green" id="overviewMatchCount">✅ Match: 0</span>
+        <span class="badge badge-red" id="overviewMismatchCount">❌ Mismatch: 0</span>
+        <span class="badge badge-gray" id="overviewPendingCount">⏳ Pending: 0</span>
+      </div>
+      <div style="overflow-x:auto;flex:1">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#f8fafc;text-align:left">
+              <th style="padding:6px 10px;border-bottom:2px solid var(--border)">#</th>
+              <th style="padding:6px 10px;border-bottom:2px solid var(--border)">Match</th>
+              <th style="padding:6px 10px;border-bottom:2px solid var(--border)">Score</th>
+              <th style="padding:6px 10px;border-bottom:2px solid var(--border)">Title</th>
+              <th style="padding:6px 10px;border-bottom:2px solid var(--border)">Company</th>
+              <th style="padding:6px 10px;border-bottom:2px solid var(--border)">Reason</th>
+            </tr>
+          </thead>
+          <tbody id="overviewTableBody"></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -1230,7 +1338,7 @@ function refreshJobSelector() {
   const sel = document.getElementById("jobSelector");
   const prev = sel.value;
   sel.innerHTML = '<option value="">— Select a job to view details —</option>';
-  currentJobs.forEach(j => {
+  currentJobs.forEach((j, idx) => {
     const opt = document.createElement("option");
     opt.value = j.id;
     const clMark = j.has_cl ? "📝" : "";
@@ -1238,12 +1346,14 @@ function refreshJobSelector() {
       try { return JSON.parse(j.cv_match).overall_match ? "✅" : "❌"; }
       catch(e) { return ""; }
     })() : "";
-    opt.textContent = `${j.title} @ ${j.company}  ${clMark}${evalMark}`;
+    opt.textContent = `#${idx + 1}  ${j.title} @ ${j.company}  ${clMark}${evalMark}`;
     sel.appendChild(opt);
   });
   if (prev && currentJobs.find(j => String(j.id) === prev)) {
     sel.value = prev;
   }
+  // Refresh match overview if open
+  if (matchOverviewOpen) renderMatchOverview();
 }
 
 function onJobSelect() {
@@ -1280,6 +1390,7 @@ async function loadJobDetail(id) {
       const lines = [];
       lines.push(`Overall: ${r.overall_match ? "✅ Match" : "❌ Mismatch"}`);
       if (r.match_score !== undefined) lines.push(`Score: ${r.match_score}/100`);
+      if (r.experience_match !== undefined) lines.push(`Experience: ${r.experience_match ? "✅ Satisfied" : "❌ Insufficient"}`);
       if (r.reasons) lines.push(`Reasons: ${r.reasons}`);
       document.getElementById("evalResult").textContent = lines.join("\n");
       document.getElementById("evalSection").style.display = "block";
@@ -1342,15 +1453,23 @@ async function loadStructuredDetail(id) {
   } catch(e) { document.getElementById("structuredSection").style.display = "none"; }
 }
 
-// ── Actions ──
+// ── Actions (with cache support) ──
+let _lastEvalJobId = null;
+let _lastEvalCached = false;
+let _lastCLJobId = null;
+let _lastCLCached = false;
+
 async function doGenerateCL(btn) {
   if (!currentJobId) return toast("Select a job first", "error");
-  if (btn) { btn.disabled = true; btn.textContent = "⏳ Generating..."; }
+  const force = (_lastCLJobId === currentJobId && _lastCLCached);
+  if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
   try {
-    const res = await fetch(`/api/generate-cl/${currentJobId}`, { method: "POST" });
+    const res = await fetch(`/api/generate-cl/${currentJobId}?force=${force}`, { method: "POST" });
     const data = await res.json();
     if (res.ok) {
-      toast("Cover letter generated!", "success");
+      _lastCLJobId = currentJobId;
+      _lastCLCached = data.cached || false;
+      toast(data.cached ? "📄 Using cached cover letter (Ctrl+click to regenerate)" : "✅ Cover letter generated!", "success");
       loadCLForJob(currentJobId);
       refreshJobSelector();
     } else {
@@ -1362,12 +1481,16 @@ async function doGenerateCL(btn) {
 
 async function doEvaluate(btn) {
   if (!currentJobId) return toast("Select a job first", "error");
+  const force = (_lastEvalJobId === currentJobId && _lastEvalCached);
   if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
   try {
-    const res = await fetch(`/api/evaluate/${currentJobId}`, { method: "POST" });
+    const res = await fetch(`/api/evaluate/${currentJobId}?force=${force}`, { method: "POST" });
     const data = await res.json();
     if (res.ok) {
-      toast(data.message, data.overall_match ? "success" : "error");
+      _lastEvalJobId = currentJobId;
+      _lastEvalCached = data.cached || false;
+      const label = data.cached ? "📄 Cached — " : "";
+      toast(label + data.message, data.overall_match ? "success" : "error");
       loadJobDetail(currentJobId);
       refreshJobSelector();
     } else {
@@ -1436,6 +1559,19 @@ function toggleCLEdit() {
 // ── Pipeline ──
 async function runPipeline() {
   const kw = document.getElementById("keywordsInput").value;
+  // ── Validate: at least one platform must be selected ──
+  const anyChecked = (
+    document.getElementById("scraperLinkedin").checked ||
+    document.getElementById("scraperJobsdb").checked ||
+    document.getElementById("scraperIndeed").checked ||
+    document.getElementById("scraperEfc").checked ||
+    document.getElementById("scraperPolyu").checked ||
+    document.getElementById("scraperManual").checked
+  );
+  if (!anyChecked) {
+    toast("⚠️ Please select at least one platform!", "error");
+    return;
+  }
   const fd = new FormData();
   fd.set("keywords", kw);
   fd.set("scraper_linkedin", document.getElementById("scraperLinkedin").checked);
@@ -1769,6 +1905,92 @@ async function saveSettings() {
 
 function closeModal(id) { document.getElementById(id).classList.remove("show"); }
 
+// ── Match Overview ──
+let matchOverviewOpen = false;
+
+function toggleMatchOverview() {
+  if (matchOverviewOpen) {
+    closeMatchOverview();
+  } else {
+    openMatchOverview();
+  }
+}
+
+function openMatchOverview() {
+  matchOverviewOpen = true;
+  document.getElementById("detailPanel").style.display = "none";
+  document.getElementById("matchOverviewPanel").style.display = "flex";
+  document.getElementById("btnMatchOverview").textContent = "✖ Close Overview";
+  renderMatchOverview();
+}
+
+function closeMatchOverview() {
+  matchOverviewOpen = false;
+  document.getElementById("matchOverviewPanel").style.display = "none";
+  document.getElementById("detailPanel").style.display = "flex";
+  document.getElementById("btnMatchOverview").textContent = "🤖 Match Overview";
+}
+
+function renderMatchOverview() {
+  const tbody = document.getElementById("overviewTableBody");
+  tbody.innerHTML = "";
+  let matchCount = 0, mismatchCount = 0, pendingCount = 0;
+
+  currentJobs.forEach((j, idx) => {
+    let isMatch = null, score = "-", reason = "-", hasEval = false;
+    if (j.cv_match) {
+        try {
+          const r = JSON.parse(j.cv_match);
+          hasEval = true;
+          isMatch = r.overall_match;
+          score = r.match_score !== undefined ? r.match_score + "/100" : "-";
+          const reasons = [];
+          if (r.skills_match === false) reasons.push("技能不匹配");
+          if (r.education_match === false) reasons.push("学历不符");
+          if (r.major_match === false) reasons.push("专业不符");
+          if (r.experience_match === false) reasons.push("经验不足");
+          if (r.requires_final_year && !r.candidate_is_final_year) reasons.push("要求final year");
+          reason = reasons.length ? reasons.join(", ") : (r.reasons || "-");
+        } catch(e) { hasEval = false; }
+      }
+      if (hasEval) {
+        if (isMatch) matchCount++; else mismatchCount++;
+      } else {
+        pendingCount++;
+      }
+
+      const tr = document.createElement("tr");
+      tr.style.borderBottom = "1px solid var(--border)";
+      tr.style.cursor = "pointer";
+      tr.onmouseenter = () => tr.style.background = "#f8fafc";
+      tr.onmouseleave = () => tr.style.background = "transparent";
+      tr.onclick = () => {
+        closeMatchOverview();
+        document.getElementById("jobSelector").value = j.id;
+        onJobSelect();
+      };
+
+      const matchBadge = !hasEval ? "⏳ Pending" :
+                             isMatch ? "✅ Match" : "❌ Mismatch";
+      const matchColor = !hasEval ? "var(--muted)" :
+                           isMatch ? "var(--green)" : "var(--red)";
+
+      tr.innerHTML = `
+        <td style="padding:6px 10px">#${idx + 1}</td>
+        <td style="padding:6px 10px;color:${matchColor};font-weight:500">${matchBadge}</td>
+        <td style="padding:6px 10px">${score}</td>
+        <td style="padding:6px 10px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${j.title || ''}">${j.title || '-'}</td>
+        <td style="padding:6px 10px">${j.company || '-'}</td>
+        <td style="padding:6px 10px;font-size:12px;color:var(--muted);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${reason}">${reason}</td>
+      `;
+      tbody.appendChild(tr);
+  });
+
+  document.getElementById("overviewMatchCount").textContent = `✅ Match: ${matchCount}`;
+  document.getElementById("overviewMismatchCount").textContent = `❌ Mismatch: ${mismatchCount}`;
+  document.getElementById("overviewPendingCount").textContent = `⏳ Pending: ${pendingCount}`;
+}
+
 // ── Toast ──
 function toast(msg, type) {
   const el = document.createElement("div");
@@ -1787,6 +2009,38 @@ document.addEventListener("keydown", e => {
 window.addEventListener("load", () => {
   checkConfig();
 });
+
+// ── Poll status (update Run/Stop button) ──
+let _lastRunning = null;
+let _pollTimer = null;
+
+function startPolling(interval) {
+  if (_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(doPoll, interval);
+}
+
+async function doPoll() {
+  // Skip if page is hidden (user switched tabs)
+  if (document.hidden) return;
+  try {
+    const res = await fetch('/api/status');
+    const d = await res.json();
+    const running = d.running;
+    if (_lastRunning !== running) {
+      _lastRunning = running;
+      document.getElementById('btnRun').style.display = running ? 'none' : '';
+      document.getElementById('btnStop').style.display = running ? '' : 'none';
+      const dot = document.getElementById('statusDot');
+      if (dot) dot.className = 'status-dot ' + (running ? 'running' : 'idle');
+      // Adjust frequency: 10s when running, 30s when idle
+      startPolling(running ? 10000 : 30000);
+    }
+  } catch(e) { /* ignore */ }
+}
+
+// Start with 30s (idle), will switch to 10s when running
+startPolling(30000);
+
 </script>
 </body>
 </html>"""
