@@ -1,73 +1,125 @@
 """
 scrapers/indeed.py — Indeed HK scraper using Playwright.
-One keyword per search, paginate until no Next button.
+One keyword per search, paginate via start=N URL param.
 URL built dynamically from config filters (Settings UI).
-"""
 
-import time
-import random
+New DOM structure (2024+): [data-jk] elements ARE the <a> tags with title <span> inside.
+"""
 import logging
+import random
+import time
+from pathlib import Path
 from .base import BaseScraper
 from config import check_stop, config
+from stealth import Stealth
 
 log = logging.getLogger("hunter")
 
-CARD_SELECTORS = [
-    "[data-jk]",
-    ".job_seen_beacon",
-    "[class*='jobContainer']",
-    ".resultContent",
-    "article",
-]
+# ── Page evaluation JS: bulk-extract all job cards, skip sponsored/recommended ──
+_EXTRACT_CARDS_JS = """() => {
+    const results = [];
+    let inRecommended = false;
 
-TITLE_SELECTORS = [
-    "h2 a",
-    "[data-jk] h2 a",
-    "[class*='title'] a",
-    "a[href*='/job/']",
-    "span[title]",
-]
+    // Indeed's job result list: each card is in a container like <div> > <h3> > <a data-jk>
+    // Collect all [data-jk] links
+    const cards = document.querySelectorAll('[data-jk]');
 
-COMPANY_SELECTORS = [
-    "[data-jk] span",
-    "[class*='company']",
-    "span[class*='company']",
-]
+    for (const card of cards) {
+        // Skip if this card is inside a recommended/sponsored section
+        // Check card and ancestors for sponsored indicators
+        let node = card;
+        let isSponsored = false;
+        for (let i = 0; i < 5 && node; i++) {
+            const cls = (node.className || '').toString().toLowerCase();
+            const txt = (node.textContent || '').slice(0, 200).toLowerCase();
+            if (cls.includes('sponsored') || cls.includes('recommend') || cls.includes('promoted')
+                || txt.includes('sponsored') || txt.includes('promoted')) {
+                isSponsored = true;
+                break;
+            }
+            node = node.parentElement;
+        }
+        if (isSponsored) continue;
 
+        // Check if we've entered the "recommended jobs" section
+        // Look for recent sibling headings that signal recommended results
+        let prev = card.previousElementSibling;
+        for (let i = 0; i < 3 && prev; i++) {
+            const tag = prev.tagName.toLowerCase();
+            const txt = (prev.textContent || '').toLowerCase().trim();
+            if ((tag === 'h2' || tag === 'h3' || tag === 'h4' || tag === 'div') && 
+                (txt.includes('nearby') || txt.includes('regional') || txt.includes('also searched')
+                 || txt.includes('similar') || txt.includes('other job') || txt.includes('more job')
+                 || txt.includes('recommend') || txt.includes('popular'))) {
+                inRecommended = true;
+                break;
+            }
+            prev = prev.previousElementSibling;
+        }
+        if (inRecommended) continue;
 
-def _query_selector_all_multi(page, selectors: list[str]) -> list:
-    for sel in selectors:
-        try:
-            elements = page.query_selector_all(sel)
-            if elements:
-                return elements
-        except Exception:
-            continue
-    return []
+        const jk = card.getAttribute('data-jk');
+        if (!jk) continue;
 
+        // Title: inside the <a> there's a <span title="...">
+        const spanTitle = card.querySelector('span[title]');
+        const title = spanTitle ? (spanTitle.textContent || '').trim() : '';
+        if (!title || title.length < 3) continue;
 
-def _go_to_next_page(page) -> bool:
-    try:
-        btn = page.query_selector('a[aria-label="Next"], a:has-text("Next")')
-        if btn and btn.is_enabled():
-            btn.click()
-            page.wait_for_timeout(3000)
-            return True
-    except Exception:
-        pass
-    return False
+        // Skip nav/footer text
+        const tl = title.toLowerCase();
+        if (['sign in', 'register', 'create account', 'upload cv', 'home',
+             'jobs', 'company reviews', 'salary guide', 'employers'].includes(tl)) continue;
+
+        // Company: find the parent container and look for company name
+        // Indeed wraps cards in: <td><div class="resultContent"><h3><a data-jk>...
+        let company = '(unknown)';
+        let parentDiv = card.closest('div[class*="result"], td.resultContent, div.resultContent');
+        if (!parentDiv) parentDiv = card.closest('td');
+        if (!parentDiv) parentDiv = card.closest('li');
+        
+        if (parentDiv) {
+            // Try to find company span
+            const companyEl = parentDiv.querySelector('span[data-testid="company-name"], span.companyName, span.css-1h7lukg');
+            if (companyEl) {
+                company = companyEl.textContent.trim();
+            } else {
+                // Find any span with location-like content pattern (not the title span)
+                const spans = parentDiv.querySelectorAll('span');
+                for (const s of spans) {
+                    const st = s.textContent.trim();
+                    // Skip title-like, location-like, or very short
+                    if (st.length > 2 && st.length < 60 && st !== title
+                        && !st.includes('Hong Kong') && !st.includes('Kowloon')
+                        && !st.includes('review') && !st.toLowerCase().includes('day ago')
+                        && !st.toLowerCase().includes('hour ago') && !st.toLowerCase().includes('week ago')
+                        && !st.match(/^Employer/)) {
+                        company = st;
+                        break;
+                    }
+                }
+            }
+        }
+
+        const url = 'https://hk.indeed.com/viewjob?jk=' + jk;
+        results.push({jk, title, company, url});
+    }
+    return results;
+}"""
 
 
 def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
     """
-    Scrape Indeed HK for internship jobs.
-    One search per keyword, paginate until no Next button.
+    Scrape Indeed HK for jobs.
+    One search per keyword, paginate via start=N URL param.
+    max_pages: 0 = unlimited, else stop after N pages.
     """
     all_jobs = []
     log.info(f"[Indeed] Searching {len(keywords)} keywords...")
 
     for kw in keywords:
         kw_jobs = []
+        seen_jk = set()
         # Build URL from config filters
         params = [f"q={kw.replace(' ', '+')}"]
         if config.id_date_range:
@@ -86,122 +138,104 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
 
         while True:
             url = base_url + f"&start={start}" if start > 0 else base_url
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=20_000)
 
-                # Check for "no results" page
+            # ── Navigate with Cloudflare retry ──
+            page_ok = False
+            for cf_try in range(2):
                 try:
-                    no_results = page.query_selector('[class*="no-results"], [class*="NoResults"], text=No results')
-                    if no_results:
-                        log.info(f"[Indeed]   No results page for '{kw}'")
-                        break
-                except Exception:
-                    pass
+                    page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+                    page.wait_for_timeout(3000)
 
-                try:
-                    page.wait_for_selector("[data-jk], .job_seen_beacon, .resultContent", timeout=10_000)
-                except Exception:
-                    # No job cards found — likely no results
-                    log.info(f"[Indeed]   No job cards found for '{kw}' (start={start})")
-                    break
-
-                page.wait_for_timeout(3000)
-                cards = _query_selector_all_multi(page, CARD_SELECTORS)
-                if not cards:
-                    break
-
-                for card in cards:
-                    try:
-                        # Skip sponsored/promoted cards
-                        card_text = card.inner_text().lower()
-                        if "sponsored" in card_text or "promoted" in card_text:
-                            continue
-
-                        title = ""
-                        for sel in TITLE_SELECTORS:
-                            try:
-                                title_el = card.query_selector(sel)
-                                if title_el:
-                                    title = title_el.inner_text().strip()
-                                    break
-                            except Exception:
-                                continue
-
-                        if not title or len(title) < 3:
-                            txt = card.inner_text()
-                            lines = [l.strip() for l in txt.split("\n") if l.strip()]
-                            if lines:
-                                title = lines[0][:120]
-
-                        if not title or len(title) < 3:
-                            continue
-
-                        # Skip non-job text (nav, footer, etc.)
-                        title_lower = title.lower()
-                        if any(x in title_lower for x in ["sign in", "register", "create account", "upload cv", "home", "jobs", "company reviews", "salary guide"]):
-                            continue
-
-                        company = ""
-                        for sel in COMPANY_SELECTORS:
-                            try:
-                                company_el = card.query_selector(sel)
-                                if company_el:
-                                    company = company_el.inner_text().strip()
-                                    break
-                            except Exception:
-                                continue
-
-                        href = ""
-                        try:
-                            # Method 1: Find direct link
-                            link_el = card.query_selector("a[href*='/job/']")
-                            if link_el:
-                                href = link_el.get_attribute("href") or ""
-                            
-                            # Method 2: Use data-jk to construct URL (more reliable)
-                            if not href:
-                                jk = card.get_attribute("data-jk") or ""
-                                if jk:
-                                    href = f"https://hk.indeed.com/viewjob?jk={jk}"
-                                
-                            # Method 3: Find any link in card
-                            if not href:
-                                any_link = card.query_selector("a")
-                                if any_link:
-                                    href = any_link.get_attribute("href") or ""
-                        except Exception:
-                            pass
-
-                        if href and not href.startswith("http"):
-                            if href.startswith("/"):
-                                href = "https://hk.indeed.com" + href
-                            else:
-                                href = "https://hk.indeed.com/" + href
-                        job_url = href or ""
-
-                        if title and len(title) > 3:
-                            kw_jobs.append(BaseScraper.make_job(
-                                title, company, "Hong Kong", job_url, "Indeed"
-                            ))
-
-                    except Exception:
+                    _title = page.title().lower()
+                    if "just a moment" in _title or "blocked" in _title:
+                        log.warning(f"[Indeed]   Cloudflare challenge (try {cf_try+1}/2), waiting 15s...")
+                        page.wait_for_timeout(15_000)
                         continue
-
-                if max_pages > 0 and page_num + 1 >= max_pages:
+                    page_ok = True
                     break
-                if not _go_to_next_page(page):
+                except Exception as e:
+                    log.warning(f"[Indeed]   goto error: {e}")
                     break
 
-                start += 10
-                page_num += 1
-                time.sleep(random.uniform(2, 4))
-
-            except Exception:
+            if not page_ok:
+                log.error(f"[Indeed]   Page blocked after retries, skipping '{kw}'")
                 break
+
+            # ── Detect homepage redirect ──
+            current_url = page.url
+            if "/jobs" not in current_url or current_url.rstrip("/").endswith("/hk"):
+                log.warning(f"[Indeed]   Redirected to homepage! URL: {current_url}")
+                break
+
+            # ── Detect "no results" ──
+            try:
+                body_text = page.inner_text("body")
+                no_result_keywords = [
+                    "找不到", "no jobs found", "No matching jobs",
+                    "沒有相關", "没有找到", "0 jobs in", "no results",
+                ]
+                if any(kw_no in body_text for kw_no in no_result_keywords):
+                    log.info(f"[Indeed]   No results page for '{kw}' (start={start})")
+                    break
+            except Exception:
+                pass
+
+            # ── Extract cards ──
+            cards = page.evaluate(_EXTRACT_CARDS_JS)
+            if not cards:
+                if start == 0:
+                    debug_dir = Path(__file__).parent.parent / "debug"
+                    debug_dir.mkdir(parents=True, exist_ok=True)
+                    debug_path = debug_dir / f"indeed_debug_{kw.replace(' ', '_')}.html"
+                    try:
+                        debug_path.write_text(page.content(), encoding="utf-8")
+                        log.warning(f"[Indeed]   No cards on first page, debug HTML: {debug_path.name}")
+                    except Exception:
+                        pass
+                else:
+                    log.info(f"[Indeed]   No more jobs at start={start}, stopping")
+                break
+
+            new_count = 0
+            kw_parts = [p.lower() for p in kw.split() if len(p) > 1]
+            for c in cards:
+                jk = c.get("jk", "")
+                if jk in seen_jk:
+                    continue
+                seen_jk.add(jk)
+                title = c.get("title", "")
+                company = c.get("company", "(unknown)")
+                url = c.get("url", "")
+                if not title or len(title) < 3:
+                    continue
+                title_lower = title.lower()
+                if kw_parts and not any(p in title_lower for p in kw_parts):
+                    continue
+                if any(skip in title_lower for skip in [
+                    "sign in", "register", "create account", "upload cv",
+                    "home", "jobs", "company reviews", "salary guide"
+                ]):
+                    continue
+                kw_jobs.append(BaseScraper.make_job(
+                    title, company, "Hong Kong", url, "Indeed"
+                ))
+                new_count += 1
+
+            if new_count == 0:
+                log.info(f"[Indeed]   No new jobs at start={start}, stopping")
+                break
+
+            if max_pages > 0 and page_num + 1 >= max_pages:
+                break
+
+            start += 10
+            page_num += 1
+            time.sleep(random.uniform(3, 6))
 
         all_jobs.extend(kw_jobs)
         log.info(f"[Indeed] Searching: {kw} → {len(kw_jobs)} jobs")
-        time.sleep(random.uniform(1, 2))
+        # Long delay between keywords to avoid Cloudflare rate-limiting
+        time.sleep(random.uniform(5, 10))
 
     # Deduplicate by (title, company)
     seen = set()

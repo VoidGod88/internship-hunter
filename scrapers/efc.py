@@ -12,10 +12,16 @@ import urllib.parse
 from pathlib import Path
 from .base import BaseScraper
 from config import check_stop, config
+from stealth import Stealth
 
 log = logging.getLogger("hunter")
 
 BASE = "https://www.efinancialcareers.hk"
+
+# ── Tunable scroll behaviour ──
+SCROLL_PAUSE_MS = 1500          # wait between scrolls
+SCROLL_MAX_NO_NEW = 4           # stop after N consecutive scrolls that add 0 new cards
+SCROLL_MAX_ROUNDS = 100         # hard cap so a misbehaving page can't loop forever
 
 
 def _build_url(keyword: str) -> str:
@@ -237,16 +243,15 @@ def _parse_cards(page) -> list:
     return unique
 
 
-def scrape_efc(page, keywords: list[str] = None, max_pages: int = 5,
+def scrape_efc(page, keywords: list[str] = None,
                location: str = "Hong Kong", jobtype_internship_only: bool = True) -> list:
     """
     Scrape eFinancialCareers HK.
     URL format: /jobs/{keyword}/in-hong-kong?q=...&pageSize=15
-    Uses infinite scroll to load more results.
-    max_pages = max scroll rounds (default 5).
+    Uses human-like infinite scroll, auto-stops when no new cards.
     """
     all_jobs = []
-    seen_hrefs: set = set()
+    global_seen_hrefs: set = set()
 
     if not keywords:
         keywords = ["intern", "AI", "software engineer"]
@@ -255,6 +260,7 @@ def scrape_efc(page, keywords: list[str] = None, max_pages: int = 5,
 
     for kw in keywords:
         kw_jobs = []
+        kw_seen_hrefs = set()  # Per-keyword dedup
         url = _build_url(kw)
         log.info(f"[eFC] Searching: {kw} | URL: {url}")
 
@@ -287,34 +293,49 @@ def scrape_efc(page, keywords: list[str] = None, max_pages: int = 5,
             except Exception:
                 pass
 
-        # Scroll to load more results
-        for scroll_round in range(max_pages):
+        # Human-like infinite scroll to load all results
+        scroll_round = 0
+        prev_count = 0
+        no_new_rounds = 0
+
+        while scroll_round < SCROLL_MAX_ROUNDS:
+            scroll_round += 1
+
+            # Scroll down to trigger lazy-load
+            Stealth.human_scroll(page, scroll_pixels=800)
+            page.wait_for_timeout(SCROLL_PAUSE_MS)
+
             # Parse current cards
             cards = _parse_cards(page)
             new_count = 0
             for c in cards:
-                if c["href"] in seen_hrefs:
+                href = c.get("href", "")
+                if href in kw_seen_hrefs:
                     continue
-                seen_hrefs.add(c["href"])
+                kw_seen_hrefs.add(href)
+                global_seen_hrefs.add(href)
                 kw_jobs.append(BaseScraper.make_job(
                     title=c["title"][:120],
                     company=c.get("company") or "(unknown)",
                     location=location,
-                    url=c["href"],
+                    url=href,
                     source="eFinancialCareers",
                 ))
                 new_count += 1
 
-            log.info(f"[eFC]   Scroll {scroll_round+1}/{max_pages}: +{new_count} jobs (total: {len(kw_jobs)})")
+            total_now = len(kw_jobs)
 
-            # Try scrolling to bottom to trigger lazy load
-            if scroll_round + 1 >= max_pages:
-                break
-            try:
-                page.keyboard.press("End")
-                page.wait_for_timeout(3000)
-            except Exception:
-                break
+            if new_count == 0:
+                no_new_rounds += 1
+                if no_new_rounds >= SCROLL_MAX_NO_NEW:
+                    log.info(f"[eFC]   No new jobs for {SCROLL_MAX_NO_NEW} rounds, stopping")
+                    break
+            else:
+                no_new_rounds = 0
+            prev_count = total_now
+
+            if scroll_round % 10 == 0:
+                log.info(f"[eFC]   Scroll #{scroll_round}: {total_now} jobs so far...")
 
         all_jobs.extend(kw_jobs)
         log.info(f"[eFC] Searching: {kw} → {len(kw_jobs)} jobs")

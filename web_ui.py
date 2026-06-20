@@ -1195,7 +1195,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <div class="settings-tab" onclick="switchSettingsTab('cv')">📄 CV</div>
       <div class="settings-tab" onclick="switchSettingsTab('linkedin')">🔗 LinkedIn</div>
       <div class="settings-tab" onclick="switchSettingsTab('jobsdb')">🔴 JobsDB</div>
-      <div class="settings-tab" onclick="switchSettingsTab('indeed')">🔵 Indeed</div>
       <div class="settings-tab" onclick="switchSettingsTab('efc')">🟢 eFC</div>
       <div class="settings-tab" onclick="switchSettingsTab('advanced')">🔧 Advanced</div>
     </div>
@@ -1346,49 +1345,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
       </div>
       <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
         ⚡ JobsDB HK URL: /keyword-jobs-in-{category}/{work_type}[?daterange=N]
-      </div>
-    </div>
-
-    <!-- Tab: Indeed Filters -->
-    <div class="settings-panel" id="settingsPanel-indeed">
-      <div class="form-row">
-        <div class="form-group">
-          <label>Date Range</label>
-          <select id="fld_id_date_range">
-            <option value="">Any Time</option>
-            <option value="3">Past 3 Days</option>
-            <option value="7">Past 7 Days</option>
-            <option value="14">Past 14 Days</option>
-            <option value="30">Past 30 Days</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Job Type</label>
-          <select id="fld_id_job_type">
-            <option value="">All Types</option>
-            <option value="internship">Internship</option>
-            <option value="fulltime">Full-time</option>
-            <option value="parttime">Part-time</option>
-            <option value="contract">Contract</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Sort By</label>
-          <select id="fld_id_sort_by">
-            <option value="date">Most Recent</option>
-            <option value="relevance">Relevance</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Radius (km)</label>
-          <input type="text" id="fld_id_radius" placeholder="50">
-          <div class="form-hint">Search radius from Hong Kong. 50 = 50km.</div>
-        </div>
-      </div>
-      <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
-        ⚡ Indeed HK URL: /jobs?q=...&l=Hong+Kong&fromage=N&jt=type&sort=sort
       </div>
     </div>
 
@@ -2176,17 +2132,6 @@ async function openSettings() {
       document.getElementById('fld_jd_daterange').value = getJd('daterange', '7');
     }
 
-    // Parse Indeed filters from YAML
-    const idSection = yamlText.match(/^indeed_filters:[\s\S]*?(?=\n\S|\n*$)/m);
-    if (idSection) {
-      const idYaml = idSection[0];
-      const getId = (key, def) => { const m = idYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
-      document.getElementById('fld_id_date_range').value = getId('date_range', '7');
-      document.getElementById('fld_id_job_type').value = getId('job_type', '');
-      document.getElementById('fld_id_sort_by').value = getId('sort_by', 'date');
-      document.getElementById('fld_id_radius').value = getId('radius', '50');
-    }
-
     // Parse eFC filters from YAML
     const efcSection = yamlText.match(/^efc_filters:[\s\S]*?(?=\n\S|\n*$)/m);
     if (efcSection) {
@@ -2280,23 +2225,6 @@ async function saveSettings() {
     yaml = yaml.replace(/^jobsdb_filters:[\s\S]*?(?=\n\S|\n*$)/m, jdFilterBlock.trimEnd());
   } else {
     yaml = yaml.trimEnd() + '\n\n' + jdFilterBlock;
-  }
-
-  // Indeed filters
-  const idDateRange = document.getElementById('fld_id_date_range').value;
-  const idJobType = document.getElementById('fld_id_job_type').value;
-  const idSortBy = document.getElementById('fld_id_sort_by').value;
-  const idRadius = document.getElementById('fld_id_radius').value.trim() || '50';
-  const idFilterBlock =
-    "indeed_filters:\n" +
-    "  date_range: \"" + idDateRange + "\"\n" +
-    "  job_type: \"" + idJobType + "\"\n" +
-    "  sort_by: \"" + idSortBy + "\"\n" +
-    "  radius: \"" + idRadius + "\"\n";
-  if (yaml.match(/^indeed_filters:/m)) {
-    yaml = yaml.replace(/^indeed_filters:[\s\S]*?(?=\n\S|\n*$)/m, idFilterBlock.trimEnd());
-  } else {
-    yaml = yaml.trimEnd() + '\n\n' + idFilterBlock;
   }
 
   // eFC filters

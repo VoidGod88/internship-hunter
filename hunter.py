@@ -387,7 +387,7 @@ def run_scrapers(
                 progress_callback(f"Scraping eFinancialCareers...")
             try:
                 page = scrapers.base.BaseScraper.init_page(browser)
-                ej = scrapers.scrape_efc(page, keywords, max_pages=5)
+                ej = scrapers.scrape_efc(page, keywords)
                 all_jobs += ej
             except Exception as e:
                 log.error(f"eFC error: {e}")

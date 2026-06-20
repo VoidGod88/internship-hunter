@@ -215,10 +215,10 @@ class Config:
     jd_daterange: str = "7"           # 1, 3, 7, 14, 30, or empty
 
     # ── Indeed search filters ──
-    id_date_range: str = "7"          # fromage: 7, 14, 30, or empty
+    id_date_range: str = ""           # fromage: 7, 14, 30, or empty
     id_job_type: str = ""             # internship, fulltime, parttime, contract, or empty
-    id_sort_by: str = "date"          # date, relevance
-    id_radius: str = "50"             # km radius
+    id_sort_by: str = ""              # date, relevance
+    id_radius: str = ""               # km radius
 
     # ── eFC search filters ──
     efc_exp_level: str = "NO_EXPERIENCE"  # NO_EXPERIENCE, ENTRY_LEVEL, MID_SENIOR, etc.
@@ -307,10 +307,10 @@ class Config:
         # ── Indeed Filters ──
         id_filters = _yaml_config.get("indeed_filters", {})
         if id_filters:
-            cfg.id_date_range = str(id_filters.get("date_range", "7"))
+            cfg.id_date_range = str(id_filters.get("date_range", ""))
             cfg.id_job_type = str(id_filters.get("job_type", ""))
-            cfg.id_sort_by = str(id_filters.get("sort_by", "date"))
-            cfg.id_radius = str(id_filters.get("radius", "50"))
+            cfg.id_sort_by = str(id_filters.get("sort_by", ""))
+            cfg.id_radius = str(id_filters.get("radius", ""))
 
         # ── eFC Filters ──
         efc_filters = _yaml_config.get("efc_filters", {})
