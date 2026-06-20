@@ -959,7 +959,7 @@ body { font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-
 /* Main area: detail panel */
 .main-area { display:flex; gap:12px; flex:1; min-height:0; margin-bottom:12px; }
 .detail-panel { flex:1; background:var(--card); border-radius:var(--radius); border:1px solid var(--border);
-  padding:16px; overflow-y:auto; display:flex; flex-direction:column; min-height:350px; }
+  padding:16px; overflow-y:auto; display:flex; flex-direction:column; min-height:0; }
 .detail-panel h2 { font-size:16px; margin-bottom:4px; }
 .detail-meta { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 12px; font-size:13px; color:var(--muted); }
 .detail-section { margin-bottom:14px; }
@@ -1053,7 +1053,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
 
 /* Empty state */
 .empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center;
-  flex:1; color:var(--muted); font-size:14px; gap:8px; }
+  min-height:120px; color:var(--muted); font-size:14px; gap:8px; }
 .empty-state .icon { font-size:40px; }
 
 @media (max-width:900px) {
@@ -1077,6 +1077,14 @@ select.input-sm { min-width:200px; cursor:pointer; }
     <div class="progress-bar" style="flex:1;max-width:300px;margin-left:16px" id="progressBarOuter">
       <div class="progress-fill" id="progressFill"></div>
     </div>
+  </div>
+
+  <!-- Global action row: always visible, buttons disabled when no job selected -->
+  <div class="top-bar-slim" id="globalActionRow" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button class="btn btn-outline btn-sm" id="btnAnalyze" onclick="doAnalyze(this)" disabled title="Select a job first">🤖 AI Analyze</button>
+    <button class="btn btn-primary btn-sm" id="btnGenerateCL" onclick="doGenerateCL(this)" disabled title="Select a job first">📝 Generate CL</button>
+    <button class="btn btn-green btn-sm" id="btnApply" onclick="openApplyModal()" disabled title="Select a job first">📧 Apply</button>
+    <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;flex-shrink:1">🔗 Open Original</a>
   </div>
 
   <div class="top-bar-slim" style="flex-wrap:wrap">
@@ -1116,14 +1124,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
             </div>
           </div>
           <!-- Open Original moved to action-row -->
-        </div>
-
-        <!-- Action buttons -->
-        <div class="action-row">
-          <button class="btn btn-outline btn-sm" onclick="doAnalyze(this)">🤖 AI Analyze</button>
-          <button class="btn btn-primary btn-sm" onclick="doGenerateCL(this)">📝 Generate CL</button>
-          <button class="btn btn-green btn-sm" onclick="openApplyModal()">📧 Apply</button>
-          <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;flex-shrink:1;display:inline-block">🔗 Open Original</a>
         </div>
 
         <!-- AI Evaluation (moved above description) -->
@@ -1568,6 +1568,8 @@ function refreshJobSelector() {
   }
   // Refresh match overview if open
   if (matchOverviewOpen) renderMatchOverview();
+  // Sync UI state with selector (always run, handles both empty and selected)
+  onJobSelect();
 }
 
 async function refreshJobs() {
@@ -1591,6 +1593,11 @@ function onJobSelect() {
     document.getElementById("emptyState").style.display = "flex";
     document.getElementById("detailContent").style.display = "none";
     currentJobId = null;
+    // Disable all action buttons
+    ["btnAnalyze","btnGenerateCL","btnApply"].forEach(b => {
+      document.getElementById(b).disabled = true;
+    });
+    document.getElementById("detailUrl").style.display = "none";
     return;
   }
   currentJobId = id;
@@ -1608,17 +1615,18 @@ async function loadJobDetail(id) {
   document.getElementById("detailLocation").textContent = job.location || "";
   document.getElementById("detailSource").textContent = job.source || "";
 
-  // Description (hidden — now shown in AI Extracted Detail)
+  // Enable action buttons
+  ["btnAnalyze","btnGenerateCL","btnApply"].forEach(b => {
+    document.getElementById(b).disabled = false;
+  });
 
-  // Open Original button
+  // Open Original button (global action row)
   const urlBtn = document.getElementById("detailUrl");
   if (job.url && job.url !== "#") {
     urlBtn.href = job.url;
-    const fullUrl = job.url;
-    const shortUrl = fullUrl.length > 40 ? fullUrl.slice(0, 37) + "..." : fullUrl;
-    urlBtn.textContent = `🔗 ${shortUrl}`;
-    urlBtn.title = fullUrl;
-    urlBtn.style.display = "";
+    urlBtn.textContent = `🔗 ${job.url}`;
+    urlBtn.title = job.url;
+    urlBtn.style.display = "inline-block";
   } else {
     urlBtn.href = "#";
     urlBtn.textContent = "🔗 Open Original";
@@ -1770,7 +1778,8 @@ let _lastCLCached = false;
 async function doGenerateCL(btn) {
   if (!currentJobId) return toast("Select a job first", "error");
   const force = (_lastCLJobId === currentJobId && _lastCLCached);
-  if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+  const btnEl = document.getElementById("btnGenerateCL");
+  btnEl.disabled = true; btnEl.textContent = "⏳";
   try {
     const res = await fetch(`/api/generate-cl/${currentJobId}?force=${force}`, { method: "POST" });
     const data = await res.json();
@@ -1784,7 +1793,7 @@ async function doGenerateCL(btn) {
       toast(data.error || "Failed", "error");
     }
   } catch(e) { toast("Error: " + e.message, "error"); }
-  if (btn) { btn.disabled = false; btn.textContent = "📝 Generate CL"; }
+  btnEl.disabled = false; btnEl.textContent = "📝 Generate CL";
 }
 
 async function doEvaluate(btn) {
@@ -1851,7 +1860,8 @@ async function doFetchDetail(btn) {
 async function doAnalyze(btn) {
   if (!currentJobId) return toast("Select a job first", "error");
   const force = (_lastEvalJobId === currentJobId && _lastEvalCached);
-  if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+  const btnEl = document.getElementById("btnAnalyze");
+  btnEl.disabled = true; btnEl.textContent = "⏳";
   // Show loading in evalSection
   document.getElementById("evalSection").style.display = "block";
   document.getElementById("evalOverallBadge").textContent = "⏳ Analyzing...";
@@ -1879,7 +1889,7 @@ async function doAnalyze(btn) {
       document.getElementById("evalSection").style.display = "none";
     }
   } catch(e) { toast("Error: " + e.message, "error"); }
-  if (btn) { btn.disabled = false; btn.textContent = "🤖 AI Analyze"; }
+  btnEl.disabled = false; btnEl.textContent = "🤖 AI Analyze";
 }
 
 // ── Test Email ──
@@ -2550,6 +2560,11 @@ function closeApplyModal() {
 
 // Start with 30s (idle), will switch to 10s when running
 startPolling(30000);
+
+// Ensure initial state is correct on page load
+document.addEventListener("DOMContentLoaded", () => {
+  onJobSelect();
+});
 
 </script>
 <!-- Apply Modal (Email UI) -->
