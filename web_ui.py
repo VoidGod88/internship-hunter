@@ -954,7 +954,7 @@ body { font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-
 
 /* Slim top bar: only job selector */
 .top-bar-slim { display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
-.top-bar-slim select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--card); cursor:pointer; max-width:480px; min-width:160px; width:auto; }
+.top-bar-slim select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--card); cursor:pointer; max-width:480px; min-width:160px; width:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Main area: detail panel */
 .main-area { display:flex; gap:12px; flex:1; min-height:0; margin-bottom:12px; }
@@ -1123,7 +1123,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
           <button class="btn btn-primary btn-sm" onclick="doGenerateCL(this)">📝 Generate CL</button>
           <button class="btn btn-outline btn-sm" onclick="doAnalyze(this)">🤖 AI Analyze</button>
           <button class="btn btn-green btn-sm" onclick="openApplyModal()">📧 Apply</button>
-          <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;flex-shrink:1">🔗 Open Original</a>
+          <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;flex-shrink:1;display:inline-block">🔗 Open Original</a>
         </div>
 
         <!-- AI Evaluation (moved above description) -->
@@ -1568,32 +1568,6 @@ function refreshJobSelector() {
   }
   // Refresh match overview if open
   if (matchOverviewOpen) renderMatchOverview();
-  // Auto-size select to fit longest option text
-  autoSizeSelect(sel);
-}
-
-function autoSizeSelect(sel) {
-  if (!sel || !sel.options.length) return;
-  const style = window.getComputedStyle(sel);
-  const fontSize = style.fontSize;
-  const fontFamily = style.fontFamily;
-  const measure = document.createElement("span");
-  measure.style.fontSize = fontSize;
-  measure.style.fontFamily = fontFamily;
-  measure.style.visibility = "hidden";
-  measure.style.position = "absolute";
-  measure.style.whiteSpace = "nowrap";
-  document.body.appendChild(measure);
-  let maxW = 0;
-  for (const opt of sel.options) {
-    measure.textContent = opt.textContent;
-    const w = measure.offsetWidth;
-    if (w > maxW) maxW = w;
-  }
-  document.body.removeChild(measure);
-  // Add padding + dropdown arrow space
-  sel.style.width = Math.min(maxW + 40, window.innerWidth - 40) + "px";
-  sel.style.minWidth = "180px";
 }
 
 async function refreshJobs() {
@@ -1640,8 +1614,10 @@ async function loadJobDetail(id) {
   const urlBtn = document.getElementById("detailUrl");
   if (job.url && job.url !== "#") {
     urlBtn.href = job.url;
-    urlBtn.textContent = `🔗 ${job.url}`;
-    urlBtn.title = job.url;
+    const fullUrl = job.url;
+    const shortUrl = fullUrl.length > 40 ? fullUrl.slice(0, 37) + "..." : fullUrl;
+    urlBtn.textContent = `🔗 ${shortUrl}`;
+    urlBtn.title = fullUrl;
     urlBtn.style.display = "";
   } else {
     urlBtn.href = "#";
