@@ -1346,7 +1346,8 @@ function refreshJobSelector() {
       try { return JSON.parse(j.cv_match).overall_match ? "✅" : "❌"; }
       catch(e) { return ""; }
     })() : "";
-    opt.textContent = `#${idx + 1}  ${j.title} @ ${j.company}  ${clMark}${evalMark}`;
+    const srcLabel = j.source ? `[${j.source}] ` : "";
+    opt.textContent = `#${idx + 1}  ${srcLabel}${j.title} @ ${j.company}  ${clMark}${evalMark}`;
     sel.appendChild(opt);
   });
   if (prev && currentJobs.find(j => String(j.id) === prev)) {
