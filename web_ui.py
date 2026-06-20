@@ -1120,8 +1120,8 @@ select.input-sm { min-width:200px; cursor:pointer; }
 
         <!-- Action buttons -->
         <div class="action-row">
-          <button class="btn btn-primary btn-sm" onclick="doGenerateCL(this)">📝 Generate CL</button>
           <button class="btn btn-outline btn-sm" onclick="doAnalyze(this)">🤖 AI Analyze</button>
+          <button class="btn btn-primary btn-sm" onclick="doGenerateCL(this)">📝 Generate CL</button>
           <button class="btn btn-green btn-sm" onclick="openApplyModal()">📧 Apply</button>
           <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;flex-shrink:1;display:inline-block">🔗 Open Original</a>
         </div>
