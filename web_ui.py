@@ -1053,7 +1053,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
         <div>Select a job above to view details</div>
         <div style="font-size:12px">or click "Run" in the control panel below to start scraping</div>
       </div>
-      <div id="detailContent" style="display:none;flex:1;display:flex;flex-direction:column">
+      <div id="detailContent" style="display:none">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <h2 id="detailTitle"></h2>
@@ -1065,7 +1065,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
               <span id="detailSource"></span>
             </div>
           </div>
-          <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block">🔗 Open Original</a>
+          <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:none;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none">🔗 Open Original</a>
         </div>
 
         <!-- Action buttons -->
