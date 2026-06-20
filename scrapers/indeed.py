@@ -145,14 +145,30 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
 
                         href = ""
                         try:
+                            # Method 1: Find direct link
                             link_el = card.query_selector("a[href*='/job/']")
                             if link_el:
                                 href = link_el.get_attribute("href") or ""
+                            
+                            # Method 2: Use data-jk to construct URL (more reliable)
+                            if not href:
+                                jk = card.get_attribute("data-jk") or ""
+                                if jk:
+                                    href = f"https://hk.indeed.com/viewjob?jk={jk}"
+                                
+                            # Method 3: Find any link in card
+                            if not href:
+                                any_link = card.query_selector("a")
+                                if any_link:
+                                    href = any_link.get_attribute("href") or ""
                         except Exception:
                             pass
 
                         if href and not href.startswith("http"):
-                            href = "https://hk.indeed.com" + href
+                            if href.startswith("/"):
+                                href = "https://hk.indeed.com" + href
+                            else:
+                                href = "https://hk.indeed.com/" + href
                         job_url = href or ""
 
                         if title and len(title) > 3:

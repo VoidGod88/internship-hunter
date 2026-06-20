@@ -1065,7 +1065,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
               <span id="detailSource"></span>
             </div>
           </div>
-          <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none">🔗 Open Original</a>
+          <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="text-decoration:none;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block">🔗 Open Original</a>
         </div>
 
         <!-- Action buttons -->
@@ -1418,9 +1418,15 @@ async function loadJobDetail(id) {
   const urlBtn = document.getElementById("detailUrl");
   if (job.url && job.url !== "#") {
     urlBtn.href = job.url;
+    // Show URL on button (truncate if too long)
+    const displayUrl = job.url.length > 40 ? job.url.slice(0, 37) + "..." : job.url;
+    urlBtn.textContent = `🔗 Open Original (${displayUrl})`;
+    urlBtn.title = job.url;  // Full URL on hover
     urlBtn.style.display = "";
   } else {
     urlBtn.href = "#";
+    urlBtn.textContent = "🔗 Open Original";
+    urlBtn.title = "";
     urlBtn.style.display = "none";
   }
 
