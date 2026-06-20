@@ -1596,7 +1596,13 @@ function onJobSelect() {
   // Use strict check: empty string means no selection
   if (val === "") {
     document.getElementById("emptyState").style.display = "flex";
-    document.getElementById("detailContent").style.display = "none";
+    const dc = document.getElementById("detailContent");
+    dc.style.display = "none";
+    dc.style.visibility = "hidden";  // belt-and-suspenders
+    // Explicitly hide all sub-sections to prevent stale content leak
+    document.getElementById("evalSection").style.display = "none";
+    document.getElementById("structuredSection").style.display = "none";
+    document.getElementById("structuredContent").innerHTML = "";
     currentJobId = null;
     // Disable all action buttons
     ["btnAnalyze","btnGenerateCL","btnApply"].forEach(b => {
@@ -1612,7 +1618,9 @@ function onJobSelect() {
 
 async function loadJobDetail(id) {
   document.getElementById("emptyState").style.display = "none";
-  document.getElementById("detailContent").style.display = "flex";
+  const dc = document.getElementById("detailContent");
+  dc.style.display = "flex";
+  dc.style.visibility = "visible";
   const job = currentJobs.find(j => j.id === id);
   if (!job) return;
 
@@ -1731,6 +1739,8 @@ async function loadCLForJob(id) {
 }
 
 function displayStructured(s) {
+  // Guard: if detail panel is hidden, skip rendering
+  if (!currentJobId) return;
   const el = document.getElementById("structuredContent");
   const sec = document.getElementById("structuredSection");
   if (!s) { sec.style.display = "none"; return; }
