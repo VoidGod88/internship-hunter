@@ -1092,7 +1092,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
         <!-- Job Description -->
         <div class="detail-section">
           <h3>Job Description</h3>
-          <div class="detail-text" id="detailDesc">(No description yet — click 🌐 Fetch Detail)</div>
+          <div class="detail-text" id="detailDesc"></div>
         </div>
 
         <!-- AI Extracted Detail -->
@@ -1410,10 +1410,19 @@ async function loadJobDetail(id) {
   document.getElementById("detailCompany").textContent = job.company || "";
   document.getElementById("detailLocation").textContent = job.location || "";
   document.getElementById("detailSource").textContent = job.source || "";
-  document.getElementById("detailUrl").href = job.url || "#";
 
   // Description
-  document.getElementById("detailDesc").textContent = job.description || "(No description yet — click 🌐 Fetch Detail)";
+  document.getElementById("detailDesc").textContent = job.description || "(No description)";
+
+  // Open Original button
+  const urlBtn = document.getElementById("detailUrl");
+  if (job.url && job.url !== "#") {
+    urlBtn.href = job.url;
+    urlBtn.style.display = "";
+  } else {
+    urlBtn.href = "#";
+    urlBtn.style.display = "none";
+  }
 
   // CV Evaluation
   const evalSec = document.getElementById("evalSection");
