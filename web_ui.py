@@ -50,6 +50,7 @@ try:
     from ai_writer import generate_cover_letter  # noqa: E402
     from cv_reader import get_cv_keywords, load_cv_profile  # noqa: E402
     from fetch_job_detail import fetch_job_detail  # noqa: E402
+    from mailer import send_email, get_sender_name  # noqa: E402
     import database as _db
 except ImportError as e:
     print("=" * 60)
@@ -406,6 +407,14 @@ async def api_generate_cl(job_id: int, force: bool = False):
         if not job:
             return JSONResponse({"error": "Job not found"}, status_code=404)
 
+        # Gate: require AI Analysis first
+        detail_path = JOB_DETAILS_DIR / f"{job_id}.json"
+        if not detail_path.exists():
+            return JSONResponse(
+                {"error": "请先运行 AI Analysis（📑 按钮）来提取职位详细信息，然后再生成 Cover Letter。"},
+                status_code=400,
+            )
+
         # ── Check cache first (unless forcing) ──
         if not force:
             existing_cl = get_cover_letter(job_id)
@@ -440,34 +449,23 @@ async def api_test_email(request: Request):
         if not to_email or "@" not in to_email:
             return JSONResponse({"error": "Valid recipient email required"}, status_code=400)
 
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-
-        email_addr = cfg.email or ""
-        email_pw = cfg.email_password or ""
-        if not email_addr or not email_pw:
-            return JSONResponse({"error": "EMAIL / EMAIL_PASSWORD not configured in .env"}, status_code=400)
-
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "[Internship Hunter] Test Email"
-        msg["From"] = email_addr
-        msg["To"] = to_email
-
-        body_text = (
-            "This is a test email from Internship Hunter.\n"
-            "If you received this, your Gmail SMTP configuration is working correctly.\n\n"
-            f"Sent from: {email_addr}\n"
-            f"Sent at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        cfg.reload_inplace()
+        from mailer import send_email
+        result = send_email(
+            to_addr=to_email,
+            subject="[Internship Hunter] Test Email",
+            body=(
+                "This is a test email from Internship Hunter.\n"
+                "If you received this, your Gmail SMTP configuration is working correctly.\n\n"
+                f"Sent from: {cfg.email or ''}\n"
+                f"Sent at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            ),
+            cfg=cfg,
         )
-        msg.attach(MIMEText(body_text, "plain", "utf-8"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as s:
-            s.starttls()
-            s.login(email_addr, email_pw)
-            s.sendmail(email_addr, [to_email], msg.as_string())
-
-        return JSONResponse({"success": True, "to": to_email})
+        if result["success"]:
+            return JSONResponse({"success": True, "to": to_email})
+        else:
+            return JSONResponse({"error": result["error"]}, status_code=500)
     except Exception as e:
         log.exception("Test email error")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -968,6 +966,10 @@ body { font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-
 .detail-section h3 { font-size:13px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.5px; }
 .detail-text { font-size:13px; line-height:1.7; white-space:pre-wrap; word-break:break-word;
   border:1px solid var(--border); border-radius:6px; padding:12px; background:#f8fafc; max-height:300px; overflow-y:auto; }
+#structuredContent { padding: 0 4px; }
+#structuredContent p { margin: 10px 0 6px; text-align: justify; }
+#structuredContent ul { padding-left: 20px; margin: 6px 0; }
+#structuredContent li { margin: 4px 0; line-height: 1.7; }
 .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:500; }
 .badge-green { background:#d1fae5; color:#065f46; }
 .badge-red { background:#fee2e2; color:#991b1b; }
@@ -1113,13 +1115,15 @@ select.input-sm { min-width:200px; cursor:pointer; }
               <span id="detailSource"></span>
             </div>
           </div>
-          <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:none;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none">🔗 Open Original</a>
+          <!-- Open Original moved to action-row -->
         </div>
 
         <!-- Action buttons -->
         <div class="action-row">
           <button class="btn btn-primary btn-sm" onclick="doGenerateCL(this)">📝 Generate CL</button>
           <button class="btn btn-outline btn-sm" onclick="doAnalyze(this)">🤖 AI Analyze</button>
+          <button class="btn btn-green btn-sm" onclick="openApplyModal()">📧 Apply</button>
+          <a id="detailUrl" href="#" target="_blank" class="btn btn-outline btn-sm" style="display:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;flex-shrink:1">🔗 Open Original</a>
         </div>
 
         <!-- AI Evaluation (moved above description) -->
@@ -1134,12 +1138,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
             <div id="evalReasons" style="font-size:13px;line-height:1.6;margin-bottom:8px"></div>
             <div id="evalWarnings"></div>
           </div>
-        </div>
-
-        <!-- Job Description -->
-        <div class="detail-section">
-          <h3>Job Description</h3>
-          <div class="detail-text" id="detailDesc"></div>
         </div>
 
         <!-- AI Extracted Detail -->
@@ -1560,8 +1558,7 @@ function refreshJobSelector() {
     })() : "";
     const clMark = j.has_cl ? "📝" : "";
     const srcLabel = j.source ? `[${j.source}] ` : "";
-    const shortTitle = (j.title || "").length > 36 ? (j.title || "").slice(0, 33) + "..." : (j.title || "");
-    opt.textContent = `#${idx + 1}  ${srcLabel}${shortTitle} @ ${j.company || ""} ${evalMark}${clMark}`;
+    opt.textContent = `#${idx + 1}  ${srcLabel}${(j.title || "")} @ ${j.company || ""} ${evalMark}${clMark}`;
     sel.appendChild(opt);
   });
   // Update currentJobs to match sorted order (so onJobSelect works)
@@ -1571,6 +1568,32 @@ function refreshJobSelector() {
   }
   // Refresh match overview if open
   if (matchOverviewOpen) renderMatchOverview();
+  // Auto-size select to fit longest option text
+  autoSizeSelect(sel);
+}
+
+function autoSizeSelect(sel) {
+  if (!sel || !sel.options.length) return;
+  const style = window.getComputedStyle(sel);
+  const fontSize = style.fontSize;
+  const fontFamily = style.fontFamily;
+  const measure = document.createElement("span");
+  measure.style.fontSize = fontSize;
+  measure.style.fontFamily = fontFamily;
+  measure.style.visibility = "hidden";
+  measure.style.position = "absolute";
+  measure.style.whiteSpace = "nowrap";
+  document.body.appendChild(measure);
+  let maxW = 0;
+  for (const opt of sel.options) {
+    measure.textContent = opt.textContent;
+    const w = measure.offsetWidth;
+    if (w > maxW) maxW = w;
+  }
+  document.body.removeChild(measure);
+  // Add padding + dropdown arrow space
+  sel.style.width = Math.min(maxW + 40, window.innerWidth - 40) + "px";
+  sel.style.minWidth = "180px";
 }
 
 async function refreshJobs() {
@@ -1611,17 +1634,14 @@ async function loadJobDetail(id) {
   document.getElementById("detailLocation").textContent = job.location || "";
   document.getElementById("detailSource").textContent = job.source || "";
 
-  // Description
-  document.getElementById("detailDesc").textContent = job.description || "(No description)";
+  // Description (hidden — now shown in AI Extracted Detail)
 
   // Open Original button
   const urlBtn = document.getElementById("detailUrl");
   if (job.url && job.url !== "#") {
     urlBtn.href = job.url;
-    // Show URL on button (truncate if too long)
-    const displayUrl = job.url.length > 40 ? job.url.slice(0, 37) + "..." : job.url;
-    urlBtn.textContent = `🔗 Open Original (${displayUrl})`;
-    urlBtn.title = job.url;  // Full URL on hover
+    urlBtn.textContent = `🔗 ${job.url}`;
+    urlBtn.title = job.url;
     urlBtn.style.display = "";
   } else {
     urlBtn.href = "#";
@@ -1724,6 +1744,10 @@ function displayStructured(s) {
   if (!s) { sec.style.display = "none"; return; }
   sec.style.display = "block";
   let html = "";
+  // ── Full description at top ──
+  if (s.description) {
+    html += `<div class="detail-text" style="margin-bottom:14px;padding:10px 14px;background:var(--bg);border-radius:8px;border:1px solid var(--border);">${s.description.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>")}</div>`;
+  }
   if (s.summary) {
     html += "<p><strong>Summary:</strong></p><ul>" + s.summary.split("\n").map(x => `<li>${x}</li>`).join("") + "</ul>";
   }
@@ -1731,10 +1755,21 @@ function displayStructured(s) {
     html += "<p><strong>Requirements:</strong></p><ul>" + s.requirements.map(x => `<li>${x}</li>`).join("") + "</ul>";
   }
   if (s.application_method) html += `<p><strong>How to apply:</strong> ${s.application_method}</p>`;
+  if (s.application_materials) html += `<p><strong>Application Materials:</strong> ${s.application_materials}</p>`;
   if (s.deadline) html += `<p><strong>Deadline:</strong> ${s.deadline}</p>`;
   if (s.salary) html += `<p><strong>Salary:</strong> ${s.salary}</p>`;
   if (s.work_type) html += `<p><strong>Type:</strong> ${s.work_type}</p>`;
   if (s.location) html += `<p><strong>Location:</strong> ${s.location}</p>`;
+  if (s.benefits) html += `<p><strong>Benefits:</strong> ${s.benefits}</p>`;
+  if (s.start_date) html += `<p><strong>Start Date:</strong> ${s.start_date}</p>`;
+  if (s.duration) html += `<p><strong>Duration:</strong> ${s.duration}</p>`;
+  if (s.language_requirement) html += `<p><strong>Language:</strong> ${s.language_requirement}</p>`;
+  if (s.visa_sponsorship) {
+    const vLabel = s.visa_sponsorship === "true" ? '✅ <span style="color:#059669">Visa Sponsorship: Yes</span>' : 
+                   s.visa_sponsorship === "false" ? '❌ <span style="color:#dc2626">Visa Sponsorship: No</span>' :
+                   `<span style="color:#9ca3af">Visa Sponsorship: ${s.visa_sponsorship}</span>`;
+    html += `<p>${vLabel}</p>`;
+  }
   el.innerHTML = html;
 }
 
@@ -2468,10 +2503,110 @@ async function doPoll() {
   } catch(e) { /* ignore */ }
 }
 
+
+// ── Apply Modal ────────────────────────────────────────────────────────────
+
+async function openApplyModal() {
+    if (!currentJobId) return toast("Select a job first", "error");
+    const jobs = await (await fetch("/api/jobs")).json();
+    const job = (jobs.jobs || []).find(j => j.id === currentJobId);
+    if (!job) return toast("Job not found", "error");
+
+    const cl = await (await fetch(`/api/cover-letter/${currentJobId}`)).json();
+    const clText = cl.cover_letter || "";
+    if (!clText) return toast("Generate a Cover Letter first", "error");
+
+    const subject = `Application for ${job.title || ""}`;
+    const toAddr = (job.contact_email || "").trim();
+
+    document.getElementById("applyTo").value = toAddr;
+    document.getElementById("applySubject").value = subject;
+    document.getElementById("applyBody").value = clText;
+    document.getElementById("applyCvName").textContent = (cfg.cv_pdf_path || "CV.pdf").split("/").pop().split("\\").pop();
+    document.getElementById("applyModal").style.display = "flex";
+}
+
+
+async function sendApplication() {
+    const toAddr = document.getElementById("applyTo").value.trim();
+    const subject = document.getElementById("applySubject").value.trim();
+    const body = document.getElementById("applyBody").value.trim();
+    if (!toAddr) return toast("Recipient email required", "error");
+    if (!subject) return toast("Subject required", "error");
+    if (!body) return toast("Email body required", "error");
+
+    const btn = document.getElementById("applySendBtn");
+    btn.disabled = true;
+    btn.textContent = "⏳ Sending...";
+
+    try {
+        const res = await fetch(`/api/send-application/${currentJobId}`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({to: toAddr, subject, body}),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            toast("✅ Application sent to " + toAddr, "success");
+            closeApplyModal();
+            refreshJobSelector();
+        } else {
+            toast(data.error || "Failed to send", "error");
+        }
+    } catch(e) {
+        toast("Error: " + e.message, "error");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "📧 Send";
+    }
+}
+
+
+function closeApplyModal() {
+    document.getElementById("applyModal").style.display = "none";
+}
+
+
 // Start with 30s (idle), will switch to 10s when running
 startPolling(30000);
 
 </script>
+<!-- Apply Modal (Email UI) -->
+<div id="applyModal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.45);z-index:9999;justify-content:center;align-items:center;font-family:system-ui,-apple-system,sans-serif">
+  <div style="background:#fff;width:100%;max-width:620px;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.25);overflow:hidden;display:flex;flex-direction:column;max-height:90vh">
+    <!-- Modal Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #e5e7eb;background:#f9fafb">
+      <div style="font-weight:700;font-size:15px;color:#111">📧 Send Application</div>
+      <button onclick="closeApplyModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#9ca3af;line-height:1">&times;</button>
+    </div>
+    <!-- Email-like fields -->
+    <div style="padding:16px 18px;overflow-y:auto;flex:1">
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px">To</label>
+        <input id="applyTo" type="email" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;outline:none" placeholder="hr@company.com">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px">Subject</label>
+        <input id="applySubject" type="text" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;outline:none">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:12px;font-weight:600;color:#6b7280;margin-bottom:4px">Message</label>
+        <textarea id="applyBody" rows="14" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;line-height:1.6;resize:vertical;outline:none;font-family:system-ui,-apple-system,sans-serif"></textarea>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;color:#374151">
+        <span>📎</span>
+        <span id="applyCvName" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+        <span style="color:#9ca3af;font-size:11px">CV attached</span>
+      </div>
+    </div>
+    <!-- Modal Footer -->
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid #e5e7eb;background:#f9fafb">
+      <button onclick="closeApplyModal()" class="btn btn-outline btn-sm">Cancel</button>
+      <button id="applySendBtn" onclick="sendApplication()" class="btn btn-green btn-sm">📧 Send</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>"""
 
@@ -2485,9 +2620,62 @@ async def favicon():
     return Response(status_code=204)
 
 
+@app.post("/api/send-application/{job_id}")
+async def api_send_application(job_id: int, request: Request):
+    """
+    Send job application email with CV attachment.
+    Expects JSON body: {to, subject, body} (all optional, will auto-fill from job/CV).
+    """
+    try:
+        jobs = get_all_jobs()
+        job = next((j for j in jobs if j.get("id") == job_id), None)
+        if not job:
+            return JSONResponse({"error": "Job not found"}, status_code=404)
+
+        body = await request.json()
+        to_addr = (body.get("to") or "").strip()
+        subject = (body.get("subject") or "").strip()
+        email_body = (body.get("body") or "").strip()
+
+        # Auto-fill from job / CV
+        if not to_addr:
+            to_addr = (job.get("contact_email") or "").strip()
+        if not to_addr:
+            return JSONResponse({"error": "No recipient email. Set contact_email in job or provide 'to' in request."}, status_code=400)
+
+        if not subject:
+            sender_name = get_sender_name() or "Applicant"
+            subject = f"Application for {job.get('title', '')} - {sender_name}"
+
+        if not email_body:
+            # Use cached cover letter
+            email_body = get_cover_letter(job_id)
+        if not email_body:
+            return JSONResponse({"error": "No cover letter found. Generate one first."}, status_code=400)
+
+        cfg.reload_inplace()
+        result = send_email(
+            to_addr=to_addr,
+            subject=subject,
+            body=email_body,
+            cv_path=cfg.cv_pdf_path or "",
+            cfg=cfg,
+        )
+
+        if result["success"]:
+            # Record in application history
+            _db.record_application(job_id=job_id)
+            return JSONResponse({"success": True, "to": to_addr})
+        else:
+            return JSONResponse({"error": result["error"]}, status_code=500)
+    except Exception as e:
+        log.exception("Send application error")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/api/analyze/{job_id}")
 async def api_analyze(job_id: int, force: bool = False):
-    """Unified: scrape full page → LLM returns all 17 fields at once."""
+    """Unified: scrape full page → LLM returns all 22 fields at once."""
     try:
         jobs = get_all_jobs()
         job = next((j for j in jobs if j.get("id") == job_id), None)
@@ -2520,10 +2708,12 @@ async def api_analyze(job_id: int, force: bool = False):
                 status_code=500,
             )
 
-        # Split 17 fields into detail (7) + match (10)
+        # Split 22 fields into detail (12) + match (10)
         detail_fields = [
-            "summary", "requirements", "application_method",
+            "description", "summary", "requirements", "application_method", "application_materials",
             "deadline", "salary", "work_type", "location",
+            "benefits", "start_date", "duration",
+            "language_requirement", "visa_sponsorship",
         ]
         match_fields = [
             "overall_match", "skills_match", "education_match",

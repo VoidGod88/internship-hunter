@@ -16,27 +16,36 @@ from config import config
 
 log = logging.getLogger("hunter")
 
-JOB_DETAIL_EXTRACT_PROMPT = """You are analyzing a job posting. Extract structured information.
+JOB_DETAIL_EXTRACT_PROMPT = """You are analyzing a job posting. Extract structured information in detail.
 
 JOB POSTING TEXT:
 {description}
 
 Return ONLY a valid JSON object with these fields:
 {{
-  "summary": "3-5 bullet points summarizing the role (each bullet on a new line, use \\n)",
-  "requirements": ["requirement 1", "requirement 2", ...],
-  "application_method": "How to apply (email / portal link / online form / etc). Include the actual address or URL if found.",
+  "summary": "4-6 bullet points summarizing the role in detail (each bullet on a new line, use \\n). Each bullet should be 15-30 words, describing responsibilities, tools used, team context, or impact.",
+  "requirements": ["requirement 1 (be specific: e.g. 'Python 3+ years' not just 'Python')", ...],
+  "application_method": "How to apply. If email: state the email address AND what to attach (CV, transcript, portfolio, etc.). If portal: provide the full URL.",
+  "application_materials": "Comma-separated list of materials to prepare/preview for application (e.g. 'CV, transcript, cover letter, portfolio link'). Infer from JD or common practice for this job type. Empty string if not mentioned and unclear.",
   "deadline": "Application deadline if mentioned, else empty string",
-  "salary": "Salary/hourly rate if mentioned, else empty string",
+  "salary": "Salary/monthly rate if mentioned, else empty string",
   "work_type": "internship / full-time / part-time / contract",
-  "location": "Work location if mentioned (city, district, remote, hybrid, etc)"
+  "location": "Work location if mentioned (city, district, remote, hybrid, on-site, etc)",
+  "benefits": "Benefits / perks mentioned (e.g. transport allowance, meal subsidy, remote days, year-end bonus, insurance), else empty string",
+  "start_date": "Expected start date if mentioned (e.g. July 2026, Immediate, January 2027), else empty string",
+  "duration": "Internship duration if mentioned (e.g. 3 months, 6 weeks, 1 year), else empty string",
+  "language_requirement": "Language requirement if mentioned (e.g. 'Fluent English required, Cantonese preferred'), else empty string",
+  "visa_sponsorship": "Does the company sponsor visa? \"true\" / \"false\" / \"unclear\" (infer from JD, e.g. 'non-local welcome' means true, 'HKID only' means false)"
 }}
 
 Rules:
-- Be concise. summary bullets should be ≤ 20 words each.
-- requirements: extract only hard requirements (skills, years, degree), not nice-to-haves.
-- application_method: copy the email or URL verbatim if present.
-- Return ONLY the JSON, no markdown, no explanation.
+- summary: write detailed bullets (15-30 words each), covering what the candidate will do, what tools/tech they'll use, and what impact they'll have.
+- requirements: extract BOTH hard requirements AND preferred skills. Be specific (version numbers, years of experience, certifications).
+- application_method: if email, MUST include what to attach (e.g. "Email: hr@company.com with CV, transcript, and cover letter").
+- application_materials: list ONLY the materials, not the email address (e.g. "CV, transcript, cover letter, GitHub portfolio").
+- benefits / start_date / duration / language_requirement: fill if clearly mentioned, else infer from context or leave empty.
+- visa_sponsorship: "true" only if JD explicitly mentions visa sponsorship or welcomes non-local students. "false" if HKID/PR required. "unclear" if not mentioned.
+- Return ONLY the JSON object, no markdown, no explanation.
 """
 
 # Boilerplate selectors to REMOVE before extracting text
@@ -394,7 +403,7 @@ def fetch_job_detail(url: str) -> dict:
     return result
 
 
-JOB_ANALYZE_PROMPT = """You are a job posting analyzer and CV evaluator.
+JOB_ANALYZE_PROMPT = """You are a thorough job posting analyzer and CV evaluator.
 
 Given the CV profile (JSON) and the FULL job posting text (scraped from the URL), extract ALL of the following fields in ONE JSON object.
 
@@ -407,13 +416,19 @@ Given the CV profile (JSON) and the FULL job posting text (scraped from the URL)
 Return ONLY a valid JSON object with ALL these keys:
 
 ### Detail fields (from job posting):
-- "summary": string — 3-5 bullet points summarizing the role (each bullet on a new line, use \\n)
-- "requirements": array of strings — hard requirements (skills, years, degree), NOT nice-to-haves
-- "application_method": string — How to apply (email / portal link / online form). Include the actual address or URL if found.
+- "summary": string — 4-6 detailed bullet points describing the role (each bullet on a new line, use \\n). Each bullet should be 15-30 words, covering: what the candidate will do, what tools/tech they'll use, team context, and expected impact.
+- "requirements": array of strings — BOTH hard requirements AND preferred skills. Be specific: include version numbers, years of experience, certifications, and languages. Each item 10-25 words.
+- "application_method": string — How to apply. If email: state the email address AND what to attach (e.g. "Email: hr@company.com with CV, transcript, and cover letter"). If portal: provide the full URL.
+- "application_materials": string — Comma-separated list of materials to prepare for application (e.g. "CV, transcript, cover letter, GitHub portfolio, academic reference"). Infer from JD requirements OR common practice for this job type. Empty string only if completely unclear.
 - "deadline": string — Application deadline if mentioned, else empty string
-- "salary": string — Salary/hourly rate if mentioned, else empty string
+- "salary": string — Salary/monthly rate if mentioned, else empty string
 - "work_type": string — "internship" / "full-time" / "part-time" / "contract"
-- "location": string — Work location (city, district, remote, hybrid, etc)
+- "location": string — Work location (city, district, remote, hybrid, on-site, etc)
+- "benefits": string — Benefits / perks mentioned in detail (e.g. "Transport allowance HKD 1,000/month, meal subsidy, 12 annual leaves, medical insurance, remote 2 days/week"), else empty string
+- "start_date": string — Expected start date if mentioned (e.g. July 2026, Immediate, January 2027), else empty string
+- "duration": string — Internship duration if mentioned (e.g. 3 months, 6 weeks, 1 year), else empty string
+- "language_requirement": string — Language requirement in detail (e.g. "Fluent English required, Cantonese preferred, Mandarin a plus"), else empty string
+- "visa_sponsorship": string — "true" if JD mentions visa sponsorship / non-local welcome, "false" if explicitly HKID/PR only, else "unclear"
 
 ### Match fields (compare CV vs job):
 - "overall_match": bool — true if candidate is a good fit overall
@@ -422,25 +437,28 @@ Return ONLY a valid JSON object with ALL these keys:
 - "major_match": bool — Does the candidate's major match the job requirement?
 - "experience_match": bool — Does the candidate have enough experience? (false if job requires work experience but candidate has none)
 - "match_score": int — 0-100, how well the candidate matches
-- "reasons": string — Short explanation in Chinese (合格/不合格的理由)
+- "reasons": string — Explanation in Chinese (合格/不合格的理由，2-3句，具体说明哪些条件符合/不符合)
 - "requires_final_year": bool — Does the job require final-year students?
 - "candidate_is_final_year": bool — Set to false if unknown
 - "requires_experience": bool — Does the job require prior work experience (NOT internship)?
 
 Rules:
-- Be concise. summary bullets should be ≤ 20 words each.
-- requirements: extract only hard requirements, not nice-to-haves.
-- application_method: copy the email or URL verbatim if present.
-- match_score: 0-100, be strict.
-- reasons: explain in 1-2 Chinese sentences.
+- summary: write DETAILED bullets (15-30 words each), covering: main responsibilities, tools/tech stack, team size/context, and business impact.
+- requirements: extract BOTH hard requirements AND preferred skills. Be specific with numbers (e.g. "Python 3+ years" not "Python").
+- application_method: if email, MUST include both the email address AND what materials to attach.
+- application_materials: list ONLY the materials (not the email). Infer from JD or common practice (e.g. finance internship → CV, transcript, cover letter; design role → CV, portfolio, cover letter).
+- benefits / start_date / duration / language_requirement: fill if clearly mentioned, else infer from context or leave empty.
+- visa_sponsorship: "true" only if JD explicitly mentions visa or welcomes non-local. "false" if HKID/PR required. "unclear" if not mentioned.
+- match_score: 0-100, be strict. Deduct for missing skills, wrong major, or visa issues.
+- reasons: explain in 2-3 Chinese sentences, citing SPECIFIC conditions matched or missed.
 - Return ONLY the JSON object, no markdown, no explanation.
 """
 
 
 def analyze_job(cv_profile: dict, job: dict, cfg) -> dict:
     """
-    Unified analyze: scrape full page -> LLM returns all 17 fields.
-    Returns dict with keys: detail (dict with 7 fields) + match (dict with 10 fields)
+    Unified analyze: scrape full page -> LLM returns all 22 fields.
+    Returns dict with keys: detail (dict with 12 fields) + match (dict with 10 fields)
     """
     url = job.get("url", "")
     if not url:
@@ -507,6 +525,7 @@ def analyze_job(cv_profile: dict, job: dict, cfg) -> dict:
 
         result = json.loads(content)
         if isinstance(result, dict):
+            result["description"] = page_text[:10000]
             log.info(f"[analyze_job] LLM returned {len(result)} fields")
             return result
         return {"error": "LLM returned non-dict JSON"}

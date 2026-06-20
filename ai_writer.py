@@ -33,13 +33,31 @@ BASE_SYSTEM_PROMPT = """You are helping a student write a professional, personal
 TASK: Write a professional, concise, and personalized cover letter for the specific internship job.
 The cover letter should be 200-300 words, in plain text (no markdown).
 
+You will receive:
+1. CANDIDATE CV — the candidate's CV text (extract relevant skills/projects)
+2. JOB DATA (JSON) — structured information about the job, including:
+   - summary: bullet points describing the role
+   - requirements: list of specific requirements (version numbers, years of experience, etc.)
+   - application_method: how to apply (email/portal)
+   - application_materials: what to attach (CV, transcript, portfolio, etc.)
+   - benefits, start_date, duration, language_requirement, visa_sponsorship
+   - location, salary, work_type
+3. RAW JOB DESCRIPTION — the full original job posting text (use this to avoid missing any details)
+
+How to use the JOB DATA JSON:
+- requirements: Mention 1-2 specific requirements from this list that the candidate matches (e.g. "As required, I have 3 years of Python experience...")
+- application_materials: If the job needs specific materials, mention the candidate has prepared them (e.g. "I have attached my CV, transcript, and portfolio as requested.")
+- visa_sponsorship: If "false", explicitly mention the candidate has work authorization / is a local student (e.g. "I am a local student with work authorization in Hong Kong.")
+- language_requirement: If specified, mention the candidate meets the language requirement.
+- benefits / start_date / duration: Only mention these if they are unusual/attractive and relevant to why the candidate wants THIS specific role.
+
 Structure:
-1. Opening: State the position and your interest
-2. Body: Connect your skills/projects to the job requirements. Mention 1-2 specific projects that are most relevant.
-3. Closing: Express enthusiasm, mention availability, request an interview.
+1. Opening: State the position and your interest. Mention the company specifically.
+2. Body: Connect your skills/projects to the job requirements. Mention 1-2 specific projects that are most relevant. Reference specific technologies from requirements.
+3. Closing: Express enthusiasm, mention availability (WIE 312 hours for non-final-year), request an interview.
 
 Rules:
-- Be specific to the job description — reference their tech stack, domain, or requirements
+- Be specific to the job — reference their tech stack, domain, or specific requirements from the JSON
 - Keep it professional but personable
 - Mention if you are a non-final-year student seeking WIE placement (312 hours)
 - Include your contact info at the end
@@ -62,63 +80,28 @@ def _get_client() -> OpenAI:
     )
 
 
-def _get_high_quality_jd(original_desc: str, url: str, job_id: int) -> str:
+def _get_high_quality_jd(job_id: int) -> dict:
     """
-    Get high-quality JD, reusing AI Evaluate cache + fetch_job_detail().
-    Priority:
-    1. job_details/{job_id}.json (cache from AI Evaluate) → use description
-    2. fetch_job_detail(url) → fetch + cache
-    3. fallback to original_desc
+    Load job data from cache (job_details/{job_id}.json).
+    Returns dict with keys: description (raw text), structured (dict of all cached fields).
     """
-    # Step 1: Check cache (job_details/{job_id}.json)
-    if job_id > 0 and JOB_DETAILS_DIR.exists():
-        cache_path = JOB_DETAILS_DIR / f"{job_id}.json"
-        if cache_path.exists():
-            try:
-                cache = json.loads(cache_path.read_text(encoding="utf-8"))
-                cached_desc = cache.get("description", "")
-                if cached_desc and len(cached_desc) > 200:
-                    log.info(f"[AI Writer] Using cached JD from job_details/{job_id}.json ({len(cached_desc)} chars)")
-                    return cached_desc
-                # Also check if structured has description
-                structured = cache.get("structured", {})
-                if isinstance(structured, dict):
-                    # structured doesn't have description, but AI Evaluate saves description separately
-                    pass
-            except Exception as e:
-                log.warning(f"[AI Writer] Failed to read cache {cache_path}: {e}")
-
-    # Step 2: Fetch from URL (reuse AI Evaluate logic)
-    if url and _HAS_FETCH_DETAIL:
-        try:
-            log.info(f"[AI Writer] Fetching high-quality JD from URL: {url[:60]}")
-            fetch_result = fetch_job_detail(url)
-            fetched_desc = fetch_result.get("description", "")
-            if fetched_desc and len(fetched_desc) > 200:
-                log.info(f"[AI Writer] Using fetched JD ({len(fetched_desc)} chars)")
-                # Save to cache for next time
-                if job_id > 0:
-                    try:
-                        JOB_DETAILS_DIR.mkdir(parents=True, exist_ok=True)
-                        cache_path = JOB_DETAILS_DIR / f"{job_id}.json"
-                        cache = {}
-                        if cache_path.exists():
-                            cache = json.loads(cache_path.read_text(encoding="utf-8"))
-                        cache["description"] = fetched_desc
-                        cache_path.write_text(
-                            json.dumps(cache, ensure_ascii=False, indent=2),
-                            encoding="utf-8"
-                        )
-                    except Exception:
-                        pass
-                return fetched_desc
-            else:
-                log.info(f"[AI Writer] Fetched JD too short, using original")
-        except Exception as e:
-            log.warning(f"[AI Writer] Failed to fetch JD from URL: {e}")
-
-    # Step 3: Fallback to original description
-    return original_desc
+    result = {"description": "", "structured": {}}
+    if job_id <= 0:
+        return result
+    if not JOB_DETAILS_DIR.exists():
+        return result
+    cache_path = JOB_DETAILS_DIR / f"{job_id}.json"
+    if not cache_path.exists():
+        return result
+    try:
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        result["description"] = cache.get("description", "")
+        structured = {k: v for k, v in cache.items() if k != "description"}
+        result["structured"] = structured
+        log.info(f"[AI Writer] Loaded cache job_details/{job_id}.json ({len(str(structured))} chars structured)")
+    except Exception as e:
+        log.warning(f"[AI Writer] Failed to read cache {cache_path}: {e}")
+    return result
 
 
 def generate_cover_letter(job_title: str, company: str, description: str,
@@ -139,33 +122,37 @@ def generate_cover_letter(job_title: str, company: str, description: str,
     if config.cv_pdf_path:
         cv_text = format_cv_for_prompt(config.cv_pdf_path)
 
-    # Try to get high-quality JD (reuse AI Evaluate logic + cache)
-    description = _get_high_quality_jd(description, url, job_id)
-
     if not cv_text:
         log.warning("No CV text available, using template fallback")
         return _template_cover_letter(job_title, company, description)
 
+    # Load job data from cache (description + structured fields)
+    job_data = _get_high_quality_jd(job_id)
+    cache_desc = job_data.get("description", "")
+    structured = job_data.get("structured", {})
+
+    # Use cached description if available (more complete than passed description)
+    if cache_desc and len(cache_desc) > 200:
+        description = cache_desc
+        log.info(f"[AI Writer] Using cached description ({len(description)} chars)")
+
+    # Build prompt with JSON block + raw description
+    structured_json = json.dumps(structured, ensure_ascii=False, indent=2) if structured else "{}"
+
     user_prompt = f"""{CV_USER_INFO}
 
 ========== CANDIDATE CV ==========
-{cv_text[:3000]}
+{cv_text[:5000]}
 
-========== JOB DETAILS ==========
-Position: {job_title}
-Company: {company}
+========== JOB DATA (JSON) ==========
+{structured_json}
 
-Job Description:
-{description[:1500]}
-
-Requirements:
-{requirements[:500]}
-
-Education Requirements:
-{education[:200]}
+========== RAW JOB DESCRIPTION ==========
+{description[:5000]}
 
 ========== TASK ==========
-Write the cover letter now, using the most relevant CV information:
+Write the cover letter now, using the most relevant CV information and the job data above.
+Reference specific requirements from the JSON. If application_materials is specified, mention the candidate has prepared them.
 """
 
     try:
