@@ -1715,9 +1715,11 @@ async function loadJobDetail(id) {
 }
 
 async function loadCLForJob(id) {
+  if (currentJobId !== id) return;  // stale request, discard
   try {
     const res = await fetch(`/api/cover-letter/${id}`);
     const data = await res.json();
+    if (currentJobId !== id) return;
     if (data.cover_letter) {
       document.getElementById("clContent").textContent = data.cover_letter;
       document.getElementById("clEditor").value = data.cover_letter;
@@ -1764,11 +1766,13 @@ function displayStructured(s) {
 }
 
 async function loadStructuredDetail(id) {
+  if (currentJobId !== id) return;  // stale request, discard
   try {
     const res = await fetch(`/api/job-detail/${id}`);
     if (res.ok) {
-      const data = await res.json();
-      displayStructured(data.structured);
+    const data = await res.json();
+    if (currentJobId !== id) return;
+    displayStructured(data.structured);
     } else {
       document.getElementById("structuredSection").style.display = "none";
     }
