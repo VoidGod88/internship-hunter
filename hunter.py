@@ -35,18 +35,12 @@ log = logging.getLogger("hunter")
 # ─────────────────────────────────────────────
 
 WIE_NEGATIVE = [
+    # Clearly non-IT roles (FAQ #5)
     "accounting only", "warehouse", "driver", "cleaner", "cook",
     "nurse", "doctor", "lawyer", "social work", "sales only",
     "marketing only", "customer service only",
-]
-
-# STEM Internship Scheme jobs do NOT count toward WIE hours
-STEM_SCHEME_PATTERNS = [
-    r"\bstem\b\s*[-–—]\s*",      # "STEM - AI Engineer"
-    r"^\bstem\b",                  # "STEM Intern"
-    r"\bstem\s+internship\b",      # "STEM internship"
-    r"\bstem\s+scheme\b",          # "STEM scheme"
-    r"stem\s+internship\s+scheme",
+    # Added per FAQ #5
+    "clerk", "clerical",
 ]
 
 CS_KEYWORDS = [
@@ -107,43 +101,99 @@ def normalize_company(name: str) -> str:
 
 
 def check_wie(job: Job) -> tuple[bool, str]:
+    """
+    WIE eligibility check per PolyU COMP WIE FAQ.
+    Returns (eligible, reason).
+    
+    Rules (strict — ineligible jobs are DISCARDED, not saved to DB):
+    1. STEM Internship Scheme → NOT WIE (FAQ #11)
+    2. Freelance / Private tutoring → NOT WIE (FAQ #5)
+    3. IT Sales → NOT WIE (FAQ #5, little software dev)
+    4. Technician without software context → NOT WIE (FAQ #5)
+    5. Non-CS/IT → NOT WIE (FAQ #3, #6)
+    6. Not in HK → NOT WIE (for local students)
+    7. Must be internship/summer type (FAQ #4)
+    8. Final year requirement → NOT WIE (optional, config toggle)
+    """
     if not config.wie_enabled:
         return True, "WIE filter disabled"
 
     text = (job.title + " " + job.description + " " + job.location).lower()
     title_lower = job.title.lower()
 
-    # ── Rule 1: STEM Internship Scheme → NOT WIE eligible ──
-    for pattern in STEM_SCHEME_PATTERNS:
-        if re.search(pattern, title_lower):
-            return False, "STEM Internship Scheme (not WIE eligible)"
+    # ── Rule 1: STEM Internship Scheme → NOT WIE (FAQ #11) ──
+    # "The internship funded by the Scheme, as required by ITC, CANNOT be used
+    #  to fulfil WIE requirements."
+    if re.search(r'\bstem\b', text):
+        if re.search(r'\b(intern|internship|scheme|program|placement)\b', text):
+            return False, "STEM Internship Scheme (not WIE per FAQ #11)"
 
-    # Also check raw job_type if available
-    raw = getattr(job, 'raw_data', None) or {}
-    job_type = raw.get('job_type', '') if isinstance(raw, dict) else ''
-    if 'stem' in title_lower[:20] and 'intern' in job_type.lower():
-        return False, "STEM Internship Scheme (not WIE eligible)"
+    # ── Rule 2: Freelance / Private Tutoring → NOT WIE (FAQ #5) ──
+    # "Non-WIE: Private tutoring, Freelance activities"
+    if re.search(r'\b(freelance|freelancer)\b', text):
+        return False, "Freelance (not WIE per FAQ #5)"
+    if re.search(r'\b(private|personal)\s*tutor(ing)?\b', text):
+        return False, "Private tutoring (not WIE per FAQ #5)"
+    if '家教' in text or '私教' in text:
+        return False, "Private tutoring (not WIE per FAQ #5)"
 
+    # ── Rule 3: IT Sales → NOT WIE (FAQ #5) ──
+    # "IT sales (almost no software development work)"
+    if re.search(r'\bit\s+sales?\b', title_lower):
+        return False, "IT sales (not WIE per FAQ #5)"
+    if re.search(r'\bsales?\b.*\bintern(?:ship)?\b', title_lower):
+        if not re.search(r'\b(software|developer|engineer|programmer|web|app|code|coding)\b', text):
+            return False, "Sales role lacking software dev (not WIE per FAQ #5)"
+
+    # ── Rule 4: Technician without software dev → NOT WIE (FAQ #5) ──
+    # "Technician (small amount of software development not related to your discipline)"
+    if re.search(r'\btechnician\b', title_lower):
+        if not re.search(r'\b(software|developer|engineer|programmer|web|app|system|cloud|ai\b|machine|data|code|coding)\b', text):
+            return False, "Technician lacking software dev (not WIE per FAQ #5)"
+
+    # ── Rule 6: Non-CS/IT → NOT WIE (FAQ #3, #6) ──
+    # "Must be related to CS/IT/EIS discipline"
+    if config.wie_exclude_non_cs:
+        # Negative keywords (clearly non-CS jobs)
+        for neg in WIE_NEGATIVE:
+            if neg in text:
+                return False, f"Non-CS/IT: {neg}"
+
+        # Direct non-CS keyword check (more aggressive)
+        non_cs_titles = [
+            "data entry", "typist", "receptionist", "secretary",
+            "accountant", "auditor", "designer"  # graphic designer, not software
+        ]
+        for nct in non_cs_titles:
+            if nct in title_lower:
+                return False, f"Non-CS/IT role: {nct}"
+
+        # Must contain CS-related keywords
+        if not any(k in text for k in CS_KEYWORDS):
+            return False, "Not CS/IT related"
+
+    # ── Rule 5: Not in HK → NOT WIE (FAQ doesn't explicitly require HK,
+    #     but SAO's STEM Scheme page says "Full-time placements in Hong Kong",
+    #     implying WIE is HK-based for local students) ──
     if config.wie_require_hk:
         hk_locs = ["hong kong", "hk ", " hk", "kowloon", "tuen mun",
                    "sha tin", "kwun tong", "causeway bay", "central",
-                   "cyberport", "hkstp", "science park", "shatin"]
+                   "cyberport", "hkstp", "science park", "shatin",
+                   "tseung kwan o", "quarry bay", "wong chuk hang",
+                   "tsim sha tsui", "mong kok", "admiralty", "wan chai",
+                   "lai chi kok", "fo tan", "tai po", "sheung wan"]
         if not any(loc in text for loc in hk_locs):
             if job.location and "hong kong" not in job.location.lower():
                 return False, "Not in HK"
 
-    if config.wie_exclude_non_cs:
-        for neg in WIE_NEGATIVE:
-            if neg in text:
-                return False, f"Negative: {neg}"
-        if not any(k in text for k in CS_KEYWORDS):
-            return False, "Not CS/IT"
-
+    # ── Rule 7: Must be internship/summer type (FAQ #4) ──
+    # "Examples: summer job, not usually part-time job"
     is_internship = any(k in text for k in ["intern", "internship", "trainee", "attachment", "placement"])
     is_summer = any(k in text for k in ["summer", "暑期", "summer program"])
     if not is_internship and not is_summer:
-        return False, "Not an internship"
+        return False, "Not an internship/summer job"
 
+    # ── Rule 8: Final year requirement → NOT WIE (config toggle) ──
     if config.wie_exclude_final_year:
         if "final year" in text and "required" in text:
             return False, "Requires final year"
@@ -370,9 +420,11 @@ def run_scrapers(
 
 def process_jobs(jobs: list[Job], progress_callback=None) -> list[Job]:
     """Apply WIE rule filter, extract extra docs, classify type, dedup, save to DB.
+    WIE-ineligible jobs are DISCARDED — never saved to DB.
     Sorted by job type. NO LLM calls — CV matching is done on-demand from the UI.
     """
     total = len(jobs)
+    from collections import Counter
 
     # WIE filter + extra docs + classify type
     for i, job in enumerate(jobs):
@@ -393,10 +445,23 @@ def process_jobs(jobs: list[Job], progress_callback=None) -> list[Job]:
         if progress_callback and i % 10 == 0:
             progress_callback(f"Processing {i+1}/{total}: {job.title[:40]}...")
 
-    # Dedup
+    # ── WIE strict filter: DISCARD ineligible jobs ──
+    eligible = [j for j in jobs if j.wie_eligible]
+    filtered = total - len(eligible)
+    if filtered > 0:
+        reasons = Counter(j.wie_reason for j in jobs if not j.wie_eligible)
+        log.info(f"[WIE] Filtered out {filtered} ineligible jobs:")
+        for reason, count in reasons.most_common():
+            log.info(f"  [WIE]   {count}x {reason}")
+        log.info(f"[WIE] Kept {len(eligible)} / {total} total")
+
+    if progress_callback:
+        progress_callback(f"WIE filter: {filtered} excluded, {len(eligible)} remain")
+
+    # Dedup (eligible only)
     seen = set()
     unique = []
-    for j in jobs:
+    for j in eligible:
         norm_company = normalize_company(j.company)
         norm_title = j.title.lower().strip()[:30]
         k = (norm_company, norm_title)
@@ -407,7 +472,7 @@ def process_jobs(jobs: list[Job], progress_callback=None) -> list[Job]:
     # Sort by job type priority: summer > internship > parttime > other
     unique = sort_jobs_by_type(unique)
 
-    # Save to DB
+    # Save to DB (eligible only)
     saved = 0
     for job in unique:
         jid = insert_job(job.to_dict())
@@ -418,7 +483,7 @@ def process_jobs(jobs: list[Job], progress_callback=None) -> list[Job]:
     if progress_callback:
         progress_callback(f"Saved {saved} new jobs to database (duplicates skipped)")
 
-    log.info(f"After dedup: {len(unique)} (saved: {saved} new)")
+    log.info(f"After WIE filter + dedup: {len(unique)} (saved: {saved} new)")
     return unique
 
 
@@ -443,16 +508,16 @@ def run_full_pipeline(
         progress_callback(f"Phase 2/2: Processing {len(raw_jobs)} jobs...")
     processed = process_jobs(raw_jobs, progress_callback)
 
-    wie_count = sum(1 for j in processed if j.wie_eligible)
+    # All processed jobs are WIE-eligible (ineligible ones discarded)
     if progress_callback:
         progress_callback(
-            f"Done! {wie_count} WIE-eligible / {len(processed)} unique / {len(raw_jobs)} raw"
+            f"Done! {len(processed)} WIE-eligible jobs saved / {len(raw_jobs)} raw scraped"
         )
 
     return {
         "total_raw": len(raw_jobs),
         "total_processed": len(processed),
-        "wie_eligible": wie_count,
+        "wie_eligible": len(processed),
     }
 
 

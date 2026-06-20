@@ -20,9 +20,9 @@ Scrape Jobs → WIE Filter → CV Match → AI Detail Fetch → Track & Send
 | Step | What Happens |
 |------|-------------|
 | 🔍 **Scrape** | Pulls jobs from 6 platforms simultaneously |
-| 🎯 **Filter** | Checks WIE eligibility (CS role, HK location, not final-year-only) |
-| 🤖 **Match** | Compares job requirements against your CV using LLM |
-| 🌐 **Fetch Detail** | Opens job page in browser, extracts full description via LLM |
+| 🎯 **Filter** | **Strict WIE filter** per PolyU COMP FAQ — ineligible jobs are **discarded**, not saved |
+| 🤖 **AI Match** | On-demand LLM evaluation: compares your CV against job requirements |
+| 🌐 **Fetch Detail** | Opens job page in browser, extracts structured fields (summary, requirements, how-to-apply, deadline, salary...) via LLM |
 | ✍️ **Apply** | Review and send applications via Gmail SMTP |
 | 📊 **Track** | Records everything in SQLite — no duplicate applications |
 
@@ -31,7 +31,8 @@ Scrape Jobs → WIE Filter → CV Match → AI Detail Fetch → Track & Send
 ## ✨ Features
 
 - **6 Job Sources** — LinkedIn, JobsDB, Indeed HK, eFinancialCareers, PolyU Job Board, Manual company list
-- **🎯 On-Demand LLM** — CV parsing, CV-job matching, and detail extraction triggered manually from the UI; pipeline itself makes 0 LLM calls
+- **🎯 Strict WIE Filter** — 8 rules based on PolyU COMP WIE FAQ (#3–#11); ineligible jobs are discarded before entering the database
+- **🤖 On-Demand AI Match** — LLM-powered CV-vs-job evaluation (skills, education, major, experience), triggered per-job from the UI
 - **🔐 LinkedIn Cookie Login** — One-click browser login saves cookies, bypassing Cloudflare detection
 - **🏫 PolyU Cookie Login** — Same cookie-based auth for PolyU Job Board (no need to configure NetID/password; login once, save cookies)
 - **🎮 CV-Generated Keywords** — One-click button extracts search keywords from your CV and fills the keyword input
@@ -116,15 +117,34 @@ LLM_MODEL=deepseek-chat
 
 All settings editable in the **⚙️ Settings** panel. Defaults are pre-filled — adjust keywords, scrapers, and filters to your needs.
 
-| Section | Key Settings |
-|---------|-------------|
-| **CV** | `cv_pdf_path` — upload via UI or set path here |
-| **Search** | `search_keywords` — list of search queries |
-| **Scrapers** | Toggle individual platforms on/off |
-| **WIE Filter** | HK location, CS role, final-year exclusions |
-| **CV Matching** | LLM-based education & skills matching |
-| **Cover Letter** | Language (en/zh), enable/disable |
-| **Email** | Subject template, CV attachment, send delay |
+### WIE Filter Rules (based on PolyU COMP WIE FAQ)
+
+Ineligible jobs are **discarded** at the rule-based filtering stage — they never enter the database. The AI Match step evaluates only WIE-eligible jobs.
+
+| # | Rule | Source | Logic |
+|---|------|--------|-------|
+| 1 | STEM Internship Scheme | FAQ #11 | Title contains "STEM" + "intern/scheme/program" → discard |
+| 2 | Freelance / Private Tutoring | FAQ #5 | Contains "freelance", "private tutor", "家教" → discard |
+| 3 | IT Sales | FAQ #5 | Title is "IT sales" (little software dev) → discard |
+| 4 | Technician (no software) | FAQ #5 | Title is "technician" but no "software/dev/engineer" keywords → discard |
+| 5 | Non-CS/IT role | FAQ #3, #6 | Negative keywords (clerk, data entry, driver...) or no CS keywords (software, AI, developer...) |
+| 6 | Not in Hong Kong | FAQ #4 | Location not in HK districts list (kowloon, central, cyberport, science park...) |
+| 7 | Not internship/summer | FAQ #4 | Title lacks "intern/internship/trainee/summer" keywords |
+| 8 | Final year required | FAQ #6 (toggle) | "final year required" — excluded only when `wie_exclude_final_year: true` |
+
+> **Part-time jobs**: Not auto-discarded. As long as they pass the internship/summer + CS/HK checks, they are kept (per FAQ #8, part-time can count toward WIE if non-freelance and has team collaboration).
+
+### AI Match (post-filter, on-demand)
+
+After the strict WIE filter, eligible jobs can be evaluated by LLM against your CV:
+
+- **skills_match** — Programming languages, tools, frameworks
+- **education_match** — Degree level, field of study  
+- **major_match** — CS/IT related major
+- **experience_match** — Prior work experience requirements
+- **requires_final_year** / **candidate_is_final_year** — Final year eligibility check
+- **match_score** — 0–100 overall fit score
+- **reasons** — Brief Chinese explanation
 
 ---
 
@@ -171,7 +191,7 @@ The web UI is a single-page interface with the following layout:
 ```
 internship-hunter/
 ├── web_ui.py               # FastAPI web UI (main entry point)
-├── hunter.py                # Core pipeline: scrape -> rule-based filter (no LLM)
+├── hunter.py                # Core pipeline: scrape -> strict WIE filter (8 rules, ineligible discarded) -> dedup -> save
 ├── config.py                # Config loader (.env + config.yaml)
 ├── database.py              # SQLite ORM (jobs, cover_letters, history, seen_jobs)
 ├── models.py                # Job dataclass
@@ -216,13 +236,15 @@ internship-hunter/
        ┌────────────────────────────────────┐
        │  Step 2: Scrape (pipeline, 0x LLM)│
        │  Run -> Scrape 6 platforms         │
-       │  -> Rule-based WIE filter          │
-       │  -> Save to SQLite                 │
+       │  -> Strict WIE filter (8 rules)    │
+       │  -> Discard ineligible jobs        │
+       │  -> Dedup + Save WIE-eligible only │
        └──────────────┬─────────────────────┘
                       ▼
        ┌────────────────────────────────────┐
        │  Step 3: Review (user-driven)     │
        │  Select job -> View details        │
+       │  -> ["🤖 AI Match"] (1x LLM)     │
        │  -> ["📄 Fetch Detail"] (1x LLM) │
        │  -> View AI-extracted job info     │
        └──────────────┬─────────────────────┘
@@ -244,10 +266,10 @@ internship-hunter/
    config keywords + CV keywords --> hunter.py (subprocess)
                                        │
                                        ▼
-   Scrapers (6 sources) --> raw jobs --> rule-based WIE filter
+   Scrapers (6 sources) --> raw jobs --> strict WIE filter (8 rules, discard ineligible)
                                                 │
                                                 ▼
-                                         SQLite (jobs table)
+                                         SQLite (jobs table — WIE-eligible only)
                                                 │
                           ┌─────────────────────┼─────────────────────┐
                           ▼                     ▼                     ▼
@@ -311,3 +333,14 @@ MIT — feel free to use, modify, and share. Good luck with your WIE placement! 
 - [FastAPI](https://fastapi.tiangolo.com/) for the lightweight web framework
 - [DeepSeek](https://www.deepseek.com/) for affordable LLM API access
 - PolyU SAO for providing the internship job board
+
+---
+
+## 📝 Changelog
+
+### 2026-06-20
+- **WIE Filter v2**: Strict filtering per PolyU COMP WIE FAQ (#3–#11). 8 rules (STEM Scheme, freelance, IT sales, technician, non-CS, non-HK, non-internship, final year). **Ineligible jobs are discarded** — never saved to DB.
+- **AI Match restructured**: Now evaluates only WIE-eligible jobs (not all jobs). Evaluates skills, education, major, experience, final-year status against CV.
+- **PolyU pagination fix**: Switched from infinite scroll to `<select>` dropdown pagination (properly handles 1–11 pages).
+- **JobsDB daterange optimization**: Detects page-6 existence before switching to `daterange=7` (7-day filter for large result sets).
+- **UI platform checkbox fix**: FastAPI boolean parsing fixed (`str = Form("false")` + manual parse). Disabled all = alert.

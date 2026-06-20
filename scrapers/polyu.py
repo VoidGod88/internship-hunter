@@ -17,7 +17,13 @@ from config import check_stop
 log = logging.getLogger("hunter")
 
 LOGIN_URL = "https://jobboard-sao.polyu.edu.hk/login?callbackUrl=/"
-JOBS_URL = "https://jobboard-sao.polyu.edu.hk/jobs"
+# Try multiple possible job listing URLs (PolyU changes their URL structure sometimes)
+JOBS_URLS = [
+    "https://jobboard-sao.polyu.edu.hk/",
+    "https://jobboard-sao.polyu.edu.hk/jobs",
+    "https://jobboard-sao.polyu.edu.hk/job-posts",
+    "https://jobboard-sao.polyu.edu.hk/search",
+]
 
 
 def _login(page) -> bool:
@@ -51,25 +57,40 @@ def _login(page) -> bool:
 
 def _ensure_on_jobs_page(page) -> bool:
     """Navigate to jobs page, handling login if needed. Returns True on success."""
-    need_login = False
-    try:
-        page.goto(JOBS_URL, timeout=30000)
-        page.wait_for_load_state("networkidle", timeout=30000)
-        if "/login" in page.url:
-            need_login = True
-    except Exception:
-        need_login = True
-
-    if need_login:
-        if not _login(page):
-            return False
+    # Try each possible URL until one works (not 404)
+    for url in JOBS_URLS:
         try:
-            page.goto(JOBS_URL, timeout=30000)
+            log.info(f"[PolyU] Trying URL: {url}")
+            page.goto(url, timeout=30000)
             page.wait_for_load_state("networkidle", timeout=30000)
+            
+            # Check for 404
+            title = page.title().lower()
+            if "404" in title or "not found" in title or "error" in title:
+                log.warning(f"[PolyU]   {url} returned 404, trying next URL...")
+                continue
+            
+            # Check if redirected to login
+            if "/login" in page.url:
+                log.info(f"[PolyU]   Redirected to login, will login first")
+                if not _login(page):
+                    log.warning(f"[PolyU]   Login failed, trying next URL...")
+                    continue
+                # After login, re-check for 404
+                title = page.title().lower()
+                if "404" in title or "not found" in title:
+                    log.warning(f"[PolyU]   After login, {page.url} is 404, trying next URL...")
+                    continue
+            
+            log.info(f"[PolyU]   Successfully loaded: {page.url}")
+            return True
+            
         except Exception as e:
-            log.error(f"[PolyU] Failed to load jobs page after login: {e}")
-            return False
-    return True
+            log.warning(f"[PolyU]   Error loading {url}: {e}")
+            continue
+    
+    log.error("[PolyU] All URLs failed!")
+    return False
 
 
 def _search_keyword(page, kw: str) -> list:
@@ -77,13 +98,24 @@ def _search_keyword(page, kw: str) -> list:
     Search a single keyword using the on-page search box.
     Returns list of {title, company, url}.
     """
-    # Navigate to jobs page (ensure we're there)
+    # Stay on current page (already navigated to a working URL by _ensure_on_jobs_page)
     try:
-        page.goto(JOBS_URL, timeout=30000)
-        page.wait_for_load_state("networkidle", timeout=30000)
+        # Just reload current page instead of navigating to hardcoded URL
+        page.reload(wait_until="networkidle", timeout=30000)
     except Exception as e:
-        log.warning(f"  [PolyU] Failed to load jobs page for '{kw}': {e}")
-        return []
+        log.warning(f"  [PolyU] Failed to reload page for '{kw}': {e}")
+        # Try to navigate to a working URL
+        for url in JOBS_URLS:
+            try:
+                page.goto(url, timeout=30000)
+                page.wait_for_load_state("networkidle", timeout=30000)
+                if "/login" not in page.url and "404" not in page.title():
+                    break
+            except Exception:
+                continue
+        else:
+            log.warning(f"  [PolyU] Cannot load any working URL for '{kw}'")
+            return []
 
     # Try to find and use the search box
     search_selectors = [
@@ -132,66 +164,177 @@ def _search_keyword(page, kw: str) -> list:
     return _scrape_current_page(page, kw)
 
 
-def _scrape_current_page(page, kw: str) -> list:
-    """Scrape job cards from current page. Returns list of {title, company, url}."""
+def _extract_polyu_cards(page) -> list:
+    """
+    Extract job cards from PolyU job board page.
+    
+    PolyU job cards have this structure (from screenshot analysis):
+    - Company logo (img tag)
+    - Job title (heading text)
+    - Company name
+    - "Internship Position" / "Graduate Position" tag
+    - Posted On / Closing On dates
+    
+    Strategy:
+    1. Try specific PolyU card selectors first
+    2. Fallback: find links that LOOK like jobs (exclude footer/nav links)
+    """
     items = page.evaluate("""
-        (kw) => {
+        () => {
             const out = [];
-            const lowerKw = (kw || '').toLowerCase();
-            // Try multiple selectors for job cards/links
-            const cardSelectors = [
-                'a[href*="/job-posts"]',
-                'a[href*="/job/"]',
-                'a[href*="/jobs/"]',
-                '[class*="job-card"] a',
-                '[class*="jobCard"] a',
-                'article a',
-                '.job-item a',
+            
+            // ── Known non-job link texts to EXCLUDE (footer, nav, etc.) ──
+            const excludeTexts = [
+                'facebook', 'instagram', 'linkedin', 'twitter', 'youtube',
+                'privacy policy', 'web accessibility', 'personal information',
+                'return home', 'terms and conditions', 'user guide',
+                'cookie', 'sitemap', 'copyright', 'all rights reserved',
+                'the hong kong polytechnic university', 'polyu',
+                'job seeker', 'employer',
             ];
-            let links = [];
-            for (const sel of cardSelectors) {
+            
+            // Known URL patterns to EXCLUDE
+            const excludeUrlPatterns = [
+                '/facebook', '/instagram', '/linkedin', '/twitter',
+                'privacy-policy', 'web-accessibility', 'terms',
+                'cookie', 'sitemap',
+            ];
+            
+            function shouldExclude(linkEl) {
+                const text = (linkEl.textContent || '').trim().toLowerCase();
+                const href = (linkEl.getAttribute('href') || '').toLowerCase();
+                
+                // Exclude if text matches known non-job content
+                for (const ex of excludeTexts) {
+                    if (text.includes(ex) && text.length < 100) return true;
+                }
+                
+                // Exclude if href matches known non-job URLs
+                for (const pat of excludeUrlPatterns) {
+                    if (href.includes(pat)) return true;
+                }
+                
+                // Exclude if it's just an icon/image-only link with no meaningful text
+                if (text.length < 5) return true;
+                
+                // Exclude if it looks like a social media icon
+                if (linkEl.querySelector('svg') && text.length < 10) return true;
+                
+                return false;
+            }
+            
+            // ── Try specific PolyU job card selectors first ──
+            // Based on screenshot analysis, cards are likely in a grid/list layout
+            const cardContainerSelectors = [
+                '[class*="job-post"]',        // job post container
+                '[class*="jobCard"]',          // camelCase variant
+                '[class*="job_card"]',         // snake_case variant
+                '[class*="jobItem"]',          // item variant
+                '[class*="job-item"]',         // kebab variant
+                '[data-testid*="job"]',        // test ID based
+                'article[class*="job"]',       // article element
+            ];
+            
+            let candidateCards = [];
+            for (const sel of cardContainerSelectors) {
                 const found = document.querySelectorAll(sel);
                 if (found.length > 0) {
-                    links = Array.from(found);
+                    candidateCards = Array.from(found);
                     break;
                 }
             }
-            // Fallback: all links with meaningful text
-            if (links.length === 0) {
-                links = Array.from(document.querySelectorAll('a')).filter(a => {
-                    const txt = a.textContent.trim();
-                    return txt.length > 5 && txt.length < 200;
-                });
+            
+            // If found structured cards, extract from them
+            if (candidateCards.length > 0) {
+                for (const card of candidateCards) {
+                    // Find the main link within the card
+                    const link = card.querySelector('a[href*="/job-posts"], a[href*="/job/"], a[href*="detail"]');
+                    
+                    // Extract title: try heading tags first
+                    let title = '';
+                    const titleEl = card.querySelector('h2, h3, h4, [class*="title"], [class*="Title"]');
+                    if (titleEl) title = titleEl.textContent.trim();
+                    
+                    // Extract company name
+                    let company = '';
+                    const compEl = card.querySelector('[class*="company"], [class*="employer"], [class*="Company"], [class*="Employer"]');
+                    if (compEl) company = compEl.textContent.trim();
+                    
+                    // If no title from heading, use first meaningful text
+                    if (!title || title.length < 3) {
+                        const allText = card.innerText.split('\\n').map(t => t.trim()).filter(t => t.length > 3);
+                        title = allText[0] || '';
+                    }
+                    
+                    // Get URL
+                    let url = '';
+                    if (link) {
+                        url = link.getAttribute('href') || '';
+                    } else {
+                        // Maybe the whole card is clickable
+                        const anyLink = card.querySelector('a[href]');
+                        if (anyLink) url = anyLink.getAttribute('href') || '';
+                    }
+                    
+                    if (!url || url === '#') continue;
+                    if (!url.startsWith('http')) url = window.location.origin + url;
+                    if (!title || title.length < 3) continue;
+                    
+                    out.push({title, company: company || 'PolyU Employer', url});
+                }
+                
+                // If we got results from structured cards, return them
+                if (out.length > 0) return out;
             }
-            links.forEach(a => {
+            
+            // ── Fallback: extract from ALL links but filter aggressively ──
+            const allLinks = document.querySelectorAll('a');
+            for (const a of allLinks) {
+                if (shouldExclude(a)) continue;
+                
                 const href = a.getAttribute('href') || '';
-                if (!href || href === '#') return;
+                if (!href || href === '#' || href.startsWith('javascript:')) continue;
+                
                 const fullUrl = href.startsWith('http') ? href : window.location.origin + href;
+                
                 // Extract title
                 let title = '';
                 const h3 = a.querySelector('h3');
                 const h2 = a.querySelector('h2');
                 const h4 = a.querySelector('h4');
+                const h5 = a.querySelector('h5');
+                const h6 = a.querySelector('h6');
                 if (h3) title = h3.textContent.trim();
                 else if (h2) title = h2.textContent.trim();
                 else if (h4) title = h4.textContent.trim();
+                else if (h5) title = h5.textContent.trim();
+                else if (h6) title = h6.textContent.trim();
                 else title = a.textContent.trim().split('\\n')[0].trim();
-                // Extract company
+                
+                if (!title || title.length < 3) continue;
+                
+                // Extract company from parent container
                 let company = '';
-                const card = a.closest('article, li, div[class*="card"], div[class*="item"]') || a.parentElement;
+                const card = a.closest('article, li, div[class*="card"], div[class*="item"], [class*="post"]') || a.parentElement;
                 if (card) {
-                    const comp = card.querySelector('[class*="company"], [class*="employer"], [data-cy*="company"]');
+                    const comp = card.querySelector('[class*="company"], [class*="employer"], [class*="Company"], [class*="Employer"]');
                     if (comp) company = comp.textContent.trim();
                 }
-                if (title && title.length > 3) {
-                    out.push({title, company, url: fullUrl});
-                }
-            });
+                
+                out.push({title, company: company || '', url: fullUrl});
+            }
+            
             // Dedup by url
             const seen = new Set();
             return out.filter(x => seen.has(x.url) ? false : (seen.add(x.url), true));
         }
-    """, kw)
+    """)
+    return items or []
+
+
+def _scrape_current_page(page, kw: str) -> list:
+    """Scrape job cards from current page. Returns list of {title, company, url}."""
+    items = _extract_polyu_cards(page)
 
     # Visit detail pages to get full description for keyword matching
     if items and kw:
@@ -241,66 +384,66 @@ def _enrich_with_details(page, items: list, kw: str) -> list:
 
 def _scrape_all_and_filter(page, kw: str) -> list:
     """
-    Scrape ALL jobs from the board (paginate), then filter by keyword locally.
+    Scrape ALL jobs from the board (paginate via <select> dropdown), then filter by keyword locally.
     Used as fallback when no search box is found.
     """
     all_items = []
-    max_pages = 5
+    seen_urls = set()
+    current_page = 1
+    max_pages = 20
 
-    for page_no in range(max_pages):
-        items = page.evaluate("""
-            () => {
-                const out = [];
-                const selectors = [
-                    'a[href*="/job-posts"]', 'a[href*="/job/"]', 'a[href*="/jobs/"]',
-                    '[class*="job-card"] a', '[class*="jobCard"] a', 'article a', '.job-item a',
-                ];
-                let links = [];
-                for (const sel of selectors) {
-                    const found = document.querySelectorAll(sel);
-                    if (found.length > 0) { links = Array.from(found); break; }
-                }
-                if (links.length === 0) {
-                    links = Array.from(document.querySelectorAll('a')).filter(a => {
-                        const t = a.textContent.trim(); return t.length > 5 && t.length < 200;
-                    });
-                }
-                links.forEach(a => {
-                    const href = a.getAttribute('href') || '';
-                    if (!href || href === '#') return;
-                    const fullUrl = href.startsWith('http') ? href : window.location.origin + href;
-                    let title = '';
-                    const h3 = a.querySelector('h3'); const h2 = a.querySelector('h2'); const h4 = a.querySelector('h4');
-                    if (h3) title = h3.textContent.trim();
-                    else if (h2) title = h2.textContent.trim();
-                    else if (h4) title = h4.textContent.trim();
-                    else title = a.textContent.trim().split('\\n')[0].trim();
-                    let company = '';
-                    const card = a.closest('article, li, div[class*="card"], div[class*="item"]') || a.parentElement;
-                    if (card) {
-                        const comp = card.querySelector('[class*="company"], [class*="employer"]');
-                        if (comp) company = comp.textContent.trim();
-                    }
-                    if (title && title.length > 3) out.push({title, company, url: fullUrl});
-                });
-                const seen = new Set();
-                return out.filter(x => seen.has(x.url) ? false : (seen.add(x.url), true));
-            }
-        """)
-        if not items:
+    # Detect total pages from <select>
+    total_pages = max_pages
+    try:
+        page_select = page.query_selector('select')
+        if page_select:
+            options = page.evaluate("""(sel) => {
+                const opts = sel.querySelectorAll('option');
+                return Array.from(opts).map(o => parseInt(o.value) || parseInt(o.textContent)).filter(v => v > 0);
+            }""", page_select)
+            if options:
+                total_pages = max(options)
+    except Exception:
+        pass
+
+    while current_page <= min(total_pages, max_pages):
+        items = _extract_polyu_cards(page)
+
+        for item in items:
+            url = item.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                all_items.append(item)
+
+        if not items or current_page >= min(total_pages, max_pages):
             break
-        all_items += items
 
-        # Try next page
+        # Try select dropdown first
+        navigated = False
         try:
-            next_btn = page.query_selector('a[rel="next"], button:has-text("Next"), a:has-text("Next"), [aria-label="Next"]')
-            if next_btn:
-                next_btn.click()
+            page_select = page.query_selector('select')
+            if page_select:
+                page_select.select_option(str(current_page + 1))
                 page.wait_for_load_state("networkidle", timeout=10000)
-            else:
-                break
+                navigated = True
         except Exception:
+            pass
+
+        # Fallback: click > / Next button
+        if not navigated:
+            try:
+                next_btn = page.query_selector('a[rel="next"], a:has-text(">"):not(:has-text(">>"))')
+                if next_btn and next_btn.is_visible():
+                    next_btn.click()
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                    navigated = True
+            except Exception:
+                pass
+
+        if not navigated:
             break
+
+        current_page += 1
 
     # Filter locally by keyword
     if kw:
@@ -331,18 +474,10 @@ def scrape_polyu(page, keywords: list[str] = None, max_pages: int = 3) -> list:
     if not keywords:
         keywords = ["intern"]  # default fallback
 
-    # Navigate to jobs page
+    # Navigate to jobs page (try multiple URLs, handle login)
     log.info("[PolyU] Loading jobs page...")
-    try:
-        page.goto(JOBS_URL, timeout=30000)
-        page.wait_for_load_state("networkidle", timeout=30000)
-    except Exception as e:
-        log.error(f"[PolyU] Failed to load jobs page: {e}")
-        return []
-
-    # Check if redirected to login
-    if "/login" in page.url:
-        log.warning("[PolyU] Not logged in! Please run: python polyu_login.py")
+    if not _ensure_on_jobs_page(page):
+        log.error("[PolyU] Failed to load any jobs page!")
         return []
 
     # ── Click "View All" to go to the full paginated list page ──
@@ -387,77 +522,88 @@ def scrape_polyu(page, keywords: list[str] = None, max_pages: int = 3) -> list:
     except Exception as e:
         log.warning(f"[PolyU] Error clicking View All: {e}")
 
-    # Infinite scroll to load all jobs
-    log.info("[PolyU] Loading all jobs (infinite scroll)...")
+    # Pagination: use <select> dropdown or > / >> buttons
+    log.info("[PolyU] Loading jobs with pagination...")
     all_items = []
     seen_urls = set()
-    scroll_rounds = 0
-    max_scroll_rounds = 50
+    current_page = 1
+    max_pages = 50
 
-    while scroll_rounds < max_scroll_rounds:
-        # Extract current items
-        items = page.evaluate("""
-            () => {
-                const out = [];
-                const selectors = [
-                    'a[href*="/job-posts"]', 'a[href*="/job/"]', 'a[href*="/jobs/"]',
-                    '[class*="job-card"] a', '[class*="jobCard"] a', 'article a', '.job-item a',
-                ];
-                let links = [];
-                for (const sel of selectors) {
-                    const found = document.querySelectorAll(sel);
-                    if (found.length > 0) { links = Array.from(found); break; }
-                }
-                if (links.length === 0) {
-                    links = Array.from(document.querySelectorAll('a')).filter(a => {
-                        const t = a.textContent.trim(); return t.length > 5 && t.length < 200;
-                    });
-                }
-                links.forEach(a => {
-                    const href = a.getAttribute('href') || '';
-                    if (!href || href === '#') return;
-                    const fullUrl = href.startsWith('http') ? href : window.location.origin + href;
-                    let title = '';
-                    const h3 = a.querySelector('h3'); const h2 = a.querySelector('h2'); const h4 = a.querySelector('h4');
-                    if (h3) title = h3.textContent.trim();
-                    else if (h2) title = h2.textContent.trim();
-                    else if (h4) title = h4.textContent.trim();
-                    else title = a.textContent.trim().split('\\n')[0].trim();
-                    let company = '';
-                    const card = a.closest('article, li, div[class*="card"], div[class*="item"]') || a.parentElement;
-                    if (card) {
-                        const comp = card.querySelector('[class*="company"], [class*="employer"]');
-                        if (comp) company = comp.textContent.trim();
-                    }
-                    if (title && title.length > 3) out.push({title, company, url: fullUrl});
-                });
-                const seen = new Set();
-                return out.filter(x => seen.has(x.url) ? false : (seen.add(x.url), true));
-            }
-        """)
+    # First, detect total pages from the <select> dropdown
+    total_pages = 0
+    try:
+        page_select = page.query_selector('select')
+        if page_select:
+            options = page.evaluate("""(sel) => {
+                const opts = sel.querySelectorAll('option');
+                return Array.from(opts).map(o => parseInt(o.value) || parseInt(o.textContent)).filter(v => v > 0);
+            }""", page_select)
+            if options:
+                total_pages = max(options)
+                log.info(f"[PolyU]   Detected {total_pages} pages from select dropdown")
+    except Exception as e:
+        log.debug(f"[PolyU]   Could not detect total pages: {e}")
+
+    # If no select found, cap at max_pages
+    if total_pages == 0:
+        total_pages = max_pages
+
+    while current_page <= min(total_pages, max_pages):
+        # Extract current page items
+        items = _extract_polyu_cards(page)
 
         # Add new items
-        new_count = 0
         for item in items:
             url = item.get("url", "")
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 all_items.append(item)
-                new_count += 1
 
-        log.info(f"[PolyU]   Scroll round {scroll_rounds+1}: {len(all_items)} total jobs")
+        log.info(f"[PolyU]   Page {current_page}: {len(all_items)} total jobs")
 
-        if new_count == 0:
-            log.info("[PolyU] No new jobs after scrolling, stopping.")
+        if current_page >= min(total_pages, max_pages):
             break
 
-        # Scroll down
-        page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(2000)
-        scroll_rounds += 1
+        # Try strategy 1: use <select> dropdown to jump to next page
+        navigated = False
+        try:
+            page_select = page.query_selector('select')
+            if page_select:
+                next_page = current_page + 1
+                page_select.select_option(str(next_page))
+                page.wait_for_load_state("networkidle", timeout=10000)
+                page.wait_for_timeout(2000)
+                navigated = True
+                log.debug(f"[PolyU]   Selected page {next_page} via dropdown")
+        except Exception as e:
+            log.debug(f"[PolyU]   Select dropdown failed: {e}")
 
-    log.info(f"[PolyU] Loaded {len(all_items)} total jobs from PolyU")
+        # Try strategy 2: click > or Next button
+        if not navigated:
+            try:
+                next_btn = page.query_selector(
+                    'a[rel="next"], button:has-text(">"):not(:has-text(">>")), '
+                    'a:has-text("Next"), [aria-label*="next"]'
+                )
+                if next_btn and next_btn.is_visible():
+                    is_disabled = next_btn.get_attribute("disabled") or next_btn.get_attribute("aria-disabled")
+                    if not is_disabled:
+                        next_btn.click()
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                        page.wait_for_timeout(2000)
+                        navigated = True
+            except Exception as e:
+                log.debug(f"[PolyU]   Next button failed: {e}")
 
+        if not navigated:
+            log.info("[PolyU] No more pages")
+            break
+
+        current_page += 1
+    
+    log.info(f"[PolyU] Loaded {len(all_items)} total jobs from {current_page} pages")
+    
+    # Filter locally by keywords
     # Filter locally by keywords
     if keywords and keywords != ["intern"]:
         filtered = []
