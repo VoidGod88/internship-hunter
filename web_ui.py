@@ -1558,7 +1558,7 @@ function refreshJobSelector() {
     })() : "";
     const clMark = j.has_cl ? "📝" : "";
     const srcLabel = j.source ? `[${j.source}] ` : "";
-    opt.textContent = `#${idx + 1}  ${srcLabel}${(j.title || "")} @ ${j.company || ""} ${evalMark}${clMark}`;
+    opt.textContent = `#${idx + 1} (ID:${j.id})  ${srcLabel}${(j.title || "")} @ ${j.company || ""} ${evalMark}${clMark}`;
     sel.appendChild(opt);
   });
   // Update currentJobs to match sorted order (so onJobSelect works)
@@ -1866,6 +1866,11 @@ async function doAnalyze(btn) {
     if (res.ok) {
       _lastEvalJobId = currentJobId;
       _lastEvalCached = data.cached || false;
+      // Update currentJobs with fresh cv_match so loadJobDetail can display it
+      const jobIdx = currentJobs.findIndex(j => j.id === currentJobId);
+      if (jobIdx !== -1 && data.match) {
+        currentJobs[jobIdx].cv_match = JSON.stringify(data.match);
+      }
       toast(data.cached ? "📄 Cached — Analyze complete!" : "✅ Analyze complete!", "success");
       loadJobDetail(currentJobId);
       refreshJobSelector();
