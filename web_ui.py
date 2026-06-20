@@ -907,8 +907,8 @@ body { font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-
 #headerStatus { font-size:13px; color:var(--muted); }
 
 /* Slim top bar: only job selector */
-.top-bar-slim { display:flex; gap:12px; align-items:center; margin-bottom:12px; }
-.top-bar-slim select { min-width:320px; padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--card); cursor:pointer; }
+.top-bar-slim { display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+.top-bar-slim select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--card); cursor:pointer; max-width:480px; min-width:160px; width:auto; }
 
 /* Main area: detail panel */
 .main-area { display:flex; gap:12px; flex:1; min-height:0; margin-bottom:12px; }
@@ -1029,11 +1029,10 @@ select.input-sm { min-width:200px; cursor:pointer; }
     </div>
   </div>
 
-  <!-- Slim top bar: job selector + match overview -->
-  <div class="top-bar-slim">
-    <div>
+  <div class="top-bar-slim" style="flex-wrap:wrap">
+    <div style="min-width:0;overflow:hidden;max-width:65%">
       <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:3px">Select Job</label>
-      <select id="jobSelector" onchange="onJobSelect()" style="min-width:360px">
+      <select id="jobSelector" onchange="onJobSelect()" style="max-width:420px;min-width:180px;width:auto">
         <option value="">— Select a job to view details —</option>
       </select>
     </div>
@@ -1353,7 +1352,7 @@ function refreshJobSelector() {
   const sel = document.getElementById("jobSelector");
   const prev = sel.value;
   sel.innerHTML = '<option value="">— Select a job to view details —</option>';
-  sorted.forEach((j) => {
+  sorted.forEach((j, idx) => {
     const opt = document.createElement("option");
     opt.value = j.id;
     const evalMark = j.cv_match ? (() => {
@@ -1362,9 +1361,8 @@ function refreshJobSelector() {
     })() : "";
     const clMark = j.has_cl ? "📝" : "";
     const srcLabel = j.source ? `[${j.source}] ` : "";
-    // Short format: [Platform] Title @ Company ✅/❌ 📝
-    const shortTitle = (j.title || "").length > 40 ? (j.title || "").slice(0, 37) + "..." : (j.title || "");
-    opt.textContent = `${srcLabel}${shortTitle} @ ${j.company || ""} ${evalMark}${clMark}`;
+    const shortTitle = (j.title || "").length > 36 ? (j.title || "").slice(0, 33) + "..." : (j.title || "");
+    opt.textContent = `#${idx + 1}  ${srcLabel}${shortTitle} @ ${j.company || ""} ${evalMark}${clMark}`;
     sel.appendChild(opt);
   });
   // Update currentJobs to match sorted order (so onJobSelect works)
