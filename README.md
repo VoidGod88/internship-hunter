@@ -103,15 +103,9 @@ LLM_PROVIDER=deepseek
 LLM_API_KEY=your_deepseek_api_key
 LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-chat
-
-# PolyU Jobboard (optional — can use Cookie Login instead, see below)
-# POLYU_NET_ID=your_net_id
-# POLYU_PASSWORD=your_polyu_password
 ```
-
 > **Note:** `.env` is gitignored. The repo ships without real credentials.
->
-> **PolyU Cookie Login:** If you don't want to store your PolyU password in `.env`, use the **"🏫 PolyU Login"** button in the UI to manually log in once. Cookies will be saved to `cookies/polyu.json` for future runs.
+> **PolyU Cookie Login:** Use the **"🏫 PolyU Login"** button in the UI to manually log in once. Cookies will be saved to `cookies/polyu.json` for future runs.
 
 ### `config.yaml` — Settings
 
@@ -298,7 +292,7 @@ PolyU Job Board has a Terms & Conditions modal with custom checkboxes that canno
 1. **Cookie-Based Auth** — Use the "🏫 PolyU Login" button in the UI to manually log in to PolyU Job Board (including accepting the T&C checkboxes)
 2. **Cookie Persistence** — After login, cookies are saved to `cookies/polyu.json`
 3. **Automatic Cookie Loading** — Future scraping runs automatically load saved cookies, skipping the T&C modal entirely
-4. **No Password Needed** — You can leave `POLYU_NET_ID` and `POLYU_PASSWORD` blank in `.env`; the cookie-based auth handles everything
+4. **No Password Needed** — The cookie-based auth handles everything
 
 > **Note:** Cookies expire after some time (usually when you log out or after a long period). If PolyU scraping fails, re-run "🏫 PolyU Login".
 

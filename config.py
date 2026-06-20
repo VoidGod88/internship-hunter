@@ -50,10 +50,6 @@ LLM_PROVIDER=deepseek
 LLM_API_KEY=your_api_key_here
 LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-chat
-
-# PolyU Jobboard (optional, leave blank if not using)
-POLYU_NET_ID=your_net_id
-POLYU_PASSWORD=your_password
 """
         ENV_PATH.write_text(content, encoding="utf-8")
         print(f"[Config] Created {ENV_PATH} — please edit it with your credentials")
@@ -136,10 +132,6 @@ class Config:
     llm_base_url: str = "https://api.deepseek.com"
     llm_model: str = "deepseek-chat"
 
-    # ── PolyU ──
-    polyu_net_id: str = ""
-    polyu_password: str = ""
-
     # ── General ──
     dry_run: bool = True
     max_emails_per_run: int = 10
@@ -191,8 +183,6 @@ class Config:
         cfg.llm_api_key = os.getenv("LLM_API_KEY", "")
         cfg.llm_base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
         cfg.llm_model = os.getenv("LLM_MODEL", "deepseek-chat")
-        cfg.polyu_net_id = os.getenv("POLYU_NET_ID", "")
-        cfg.polyu_password = os.getenv("POLYU_PASSWORD", "")
 
         # ── From config.yaml (settings) ──
         cfg.cv_pdf_path = _yaml_config.get("cv_pdf_path", "")

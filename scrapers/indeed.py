@@ -72,6 +72,7 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
             f"q={kw.replace(' ', '+')}"
             f"&from=rnonboarding"
         )
+        log.info(f"[Indeed] Searching: {kw} | URL: {base_url}")
         start = 0
         page_num = 0
 
@@ -79,9 +80,21 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
             url = base_url + f"&start={start}" if start > 0 else base_url
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+
+                # Check for "no results" page
+                try:
+                    no_results = page.query_selector('[class*="no-results"], [class*="NoResults"], text=No results')
+                    if no_results:
+                        log.info(f"[Indeed]   No results page for '{kw}'")
+                        break
+                except Exception:
+                    pass
+
                 try:
                     page.wait_for_selector("[data-jk], .job_seen_beacon, .resultContent", timeout=10_000)
                 except Exception:
+                    # No job cards found — likely no results
+                    log.info(f"[Indeed]   No job cards found for '{kw}' (start={start})")
                     break
 
                 page.wait_for_timeout(3000)
@@ -91,6 +104,11 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
 
                 for card in cards:
                     try:
+                        # Skip sponsored/promoted cards
+                        card_text = card.inner_text().lower()
+                        if "sponsored" in card_text or "promoted" in card_text:
+                            continue
+
                         title = ""
                         for sel in TITLE_SELECTORS:
                             try:
@@ -108,6 +126,11 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
                                 title = lines[0][:120]
 
                         if not title or len(title) < 3:
+                            continue
+
+                        # Skip non-job text (nav, footer, etc.)
+                        title_lower = title.lower()
+                        if any(x in title_lower for x in ["sign in", "register", "create account", "upload cv", "home", "jobs", "company reviews", "salary guide"]):
                             continue
 
                         company = ""

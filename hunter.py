@@ -124,6 +124,14 @@ def check_wie(job: Job) -> tuple[bool, str]:
     # ── Rule 1: STEM Internship Scheme → NOT WIE (FAQ #11) ──
     # "The internship funded by the Scheme, as required by ITC, CANNOT be used
     #  to fulfil WIE requirements."
+    # Check title prefix first (most reliable for PolyU jobs)
+    title_stripped = job.title.strip()
+    if (title_stripped.startswith("STEM") or 
+        title_stripped.startswith("STEM -") or
+        title_stripped.startswith("STEM:") or
+        re.search(r'^STEM\s*[-:]', title_stripped)):
+        return False, "STEM Internship Scheme (not WIE per FAQ #11)"
+    
     if re.search(r'\bstem\b', text):
         if re.search(r'\b(intern|internship|scheme|program|placement)\b', text):
             return False, "STEM Internship Scheme (not WIE per FAQ #11)"
@@ -407,7 +415,7 @@ def run_scrapers(
         warn = (
             "⚠️ All external scrapers returned 0 jobs. "
             "Possible causes: Cloudflare block (LinkedIn/JobsDB/Indeed/eFC), "
-            "or login failed (PolyU — check POLYU_NET_ID/PASSWORD in .env). "
+            "or login failed (PolyU — run `python polyu_login.py` to update cookies). "
             "Try using 'LinkedIn Login' to save cookies. "
             "Pipeline is using manual_companies.json only."
         )

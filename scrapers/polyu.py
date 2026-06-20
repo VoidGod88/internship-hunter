@@ -11,86 +11,39 @@ import logging
 import time
 import re
 from pathlib import Path
-from config import config
 from config import check_stop
 
 log = logging.getLogger("hunter")
 
 LOGIN_URL = "https://jobboard-sao.polyu.edu.hk/login?callbackUrl=/"
-# Try multiple possible job listing URLs (PolyU changes their URL structure sometimes)
-JOBS_URLS = [
-    "https://jobboard-sao.polyu.edu.hk/",
-    "https://jobboard-sao.polyu.edu.hk/jobs",
-    "https://jobboard-sao.polyu.edu.hk/job-posts",
-    "https://jobboard-sao.polyu.edu.hk/search",
-]
+JOBS_URL = "https://jobboard-sao.polyu.edu.hk/"
 
 
 def _login(page) -> bool:
-    """Login to PolyU job board. Returns True on success."""
-    net_id = config.polyu_net_id.strip()
-    password = config.polyu_password.strip()
-    if not net_id or not password:
-        log.warning("[PolyU] No credentials in .env (POLYU_NET_ID / POLYU_PASSWORD)")
-        return False
-
-    log.info("[PolyU] Logging in...")
-    try:
-        page.goto(LOGIN_URL, timeout=30000)
-        page.wait_for_load_state("networkidle", timeout=30000)
-
-        page.fill('input[name="username"], input[name="netId"], input[id*="net"], input[type="text"]', net_id)
-        page.fill('input[name="password"], input[name="pwd"], input[type="password"] ', password)
-        page.click('button[type="submit"], input[type="submit"] ')
-        page.wait_for_load_state("networkidle", timeout=30000)
-
-        if "/login" in page.url:
-            log.error("[PolyU] Login failed — still on login page")
-            return False
-
-        log.info("[PolyU] Login successful")
-        return True
-    except Exception as e:
-        log.error(f"[PolyU] Login error: {e}")
-        return False
+    """Login is now handled manually via cookie file. Returns False to signal manual login needed."""
+    log.warning("[PolyU] Login required — cookies expired or not logged in.")
+    log.warning("[PolyU] Please run `python polyu_login.py` to manually login and save new cookies.")
+    return False
 
 
 def _ensure_on_jobs_page(page) -> bool:
-    """Navigate to jobs page, handling login if needed. Returns True on success."""
-    # Try each possible URL until one works (not 404)
-    for url in JOBS_URLS:
-        try:
-            log.info(f"[PolyU] Trying URL: {url}")
-            page.goto(url, timeout=30000)
-            page.wait_for_load_state("networkidle", timeout=30000)
-            
-            # Check for 404
-            title = page.title().lower()
-            if "404" in title or "not found" in title or "error" in title:
-                log.warning(f"[PolyU]   {url} returned 404, trying next URL...")
-                continue
-            
-            # Check if redirected to login
-            if "/login" in page.url:
-                log.info(f"[PolyU]   Redirected to login, will login first")
-                if not _login(page):
-                    log.warning(f"[PolyU]   Login failed, trying next URL...")
-                    continue
-                # After login, re-check for 404
-                title = page.title().lower()
-                if "404" in title or "not found" in title:
-                    log.warning(f"[PolyU]   After login, {page.url} is 404, trying next URL...")
-                    continue
-            
-            log.info(f"[PolyU]   Successfully loaded: {page.url}")
-            return True
-            
-        except Exception as e:
-            log.warning(f"[PolyU]   Error loading {url}: {e}")
-            continue
-    
-    log.error("[PolyU] All URLs failed!")
-    return False
+    """Navigate to jobs page. Returns True on success."""
+    try:
+        log.info(f"[PolyU] Loading: {JOBS_URL}")
+        page.goto(JOBS_URL, timeout=30000)
+        page.wait_for_load_state("networkidle", timeout=30000)
+    except Exception as e:
+        log.error(f"[PolyU] Failed to load {JOBS_URL}: {e}")
+        return False
+
+    # Check if redirected to login
+    if "/login" in page.url:
+        log.warning("[PolyU] Redirected to login — cookies may have expired.")
+        log.warning("[PolyU] Please run `python polyu_login.py` to update cookies.")
+        return False
+
+    log.info(f"[PolyU]   Successfully loaded: {page.url}")
+    return True
 
 
 def _search_keyword(page, kw: str) -> list:
@@ -104,17 +57,15 @@ def _search_keyword(page, kw: str) -> list:
         page.reload(wait_until="networkidle", timeout=30000)
     except Exception as e:
         log.warning(f"  [PolyU] Failed to reload page for '{kw}': {e}")
-        # Try to navigate to a working URL
-        for url in JOBS_URLS:
-            try:
-                page.goto(url, timeout=30000)
-                page.wait_for_load_state("networkidle", timeout=30000)
-                if "/login" not in page.url and "404" not in page.title():
-                    break
-            except Exception:
-                continue
-        else:
-            log.warning(f"  [PolyU] Cannot load any working URL for '{kw}'")
+        # Try to navigate back to jobs page
+        try:
+            page.goto(JOBS_URL, timeout=30000)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            if "/login" in page.url:
+                log.warning(f"  [PolyU] Redirected to login for '{kw}' — cookies expired")
+                return []
+        except Exception as e:
+            log.warning(f"  [PolyU] Cannot load {JOBS_URL} for '{kw}': {e}")
             return []
 
     # Try to find and use the search box
@@ -460,180 +411,171 @@ def _scrape_all_and_filter(page, kw: str) -> list:
     return all_items
 
 
+def _radix_goto_next_page(page) -> bool:
+    """Use Radix UI combobox to navigate to the next page. Returns True if navigated."""
+    try:
+        combobox = page.query_selector('[role="combobox"]')
+        if not combobox:
+            return False
+        # Read current page number from combobox
+        current_text = (combobox.inner_text() or "").strip()
+        current_page_num = int(current_text) if current_text.isdigit() else 1
+
+        combobox.click()
+        page.wait_for_timeout(800)
+        page.wait_for_selector('[role="option"]', timeout=5000)
+        options = page.query_selector_all('[role="option"]')
+        next_page = current_page_num + 1
+        for opt in options:
+            opt_text = (opt.inner_text() or "").strip()
+            if opt_text == str(next_page):
+                opt.click()
+                page.wait_for_timeout(1500)
+                page.wait_for_load_state("networkidle", timeout=10000)
+                return True
+        # No next page found — close dropdown
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+        return False
+    except Exception as e:
+        log.debug(f"[PolyU]   Radix goto next page failed: {e}")
+        return False
+
+
+def _extract_all_pages(page, kw: str) -> list:
+    """Extract job cards from current page and paginate through all result pages."""
+    all_items = []
+    seen_urls = set()
+    current_page = 1
+    max_pages = 50
+
+    while current_page <= max_pages:
+        items = _extract_polyu_cards(page)
+        new_count = 0
+        for item in items:
+            url = item.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                all_items.append(item)
+                new_count += 1
+
+        log.info(f"[PolyU]   [{kw}] Page {current_page}: +{new_count} ({len(all_items)} total)")
+
+        # Try to go to next page
+        if not _radix_goto_next_page(page):
+            break
+        current_page += 1
+
+    return all_items
+
+
+def _find_and_use_search_box(page, kw: str) -> bool:
+    """Find the search input on the job-posts page, type keyword, press Enter."""
+    search_selectors = [
+        'input[placeholder*="Search" i]',
+        'input[placeholder*="search" i]',
+        'input[type="search"]',
+        'input[name*="search" i]',
+        'input[name*="keyword" i]',
+        'input[class*="search" i]',
+        'input[type="text"]',
+    ]
+    for sel in search_selectors:
+        try:
+            box = page.query_selector(sel)
+            if box and box.is_visible():
+                box.fill("")
+                page.wait_for_timeout(200)
+                box.fill(kw)
+                page.wait_for_timeout(500)
+                box.press("Enter")
+                page.wait_for_timeout(2000)
+                page.wait_for_load_state("networkidle", timeout=15000)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def scrape_polyu(page, keywords: list[str] = None, max_pages: int = 3) -> list:
     """
     Scrape PolyU job board.
-    Strategy: Visit /jobs, click "View All" if present, infinite scroll to load all jobs,
-    then filter locally by keywords.
-    - keywords: list of search keywords (matched against title, company, description)
-    - max_pages: NOT USED (we scrape all jobs via infinite scroll)
-    Returns list of Job objects.
+    Strategy: Click "View All" → for each keyword, search → paginate results.
+    Uses Radix UI combobox for pagination.
     """
     from models import Job
 
     if not keywords:
-        keywords = ["intern"]  # default fallback
+        keywords = ["intern"]
 
-    # Navigate to jobs page (try multiple URLs, handle login)
+    # Navigate to jobs page
     log.info("[PolyU] Loading jobs page...")
     if not _ensure_on_jobs_page(page):
-        log.error("[PolyU] Failed to load any jobs page!")
+        log.error("[PolyU] Failed to load jobs page!")
         return []
 
     # ── Click "View All" to go to the full paginated list page ──
-    view_all_clicked = False
     try:
-        view_all_selectors = [
-            'a:has-text("View All")',
-            'a:has-text("VIEW ALL")',
-            'a:has-text("View all")',
-            'button:has-text("View All")',
-            '[class*="view-all"] a',
-            '[class*="viewAll"] a',
-            'a[href*="view-all"]',
-            'a[href*="viewAll"]',
-            'a[href*="all-jobs"]',
-        ]
-        for sel in view_all_selectors:
+        for sel in ['a:has-text("View All")', 'a:has-text("VIEW ALL")', 'a:has-text("View all")',
+                     'button:has-text("View All")']:
             try:
                 btn = page.query_selector(sel)
                 if btn and btn.is_visible():
                     log.info(f'[PolyU] Clicking "View All" (matched: {sel})...')
                     btn.click()
                     page.wait_for_load_state("networkidle", timeout=30000)
-                    page.wait_for_timeout(3000)
+                    page.wait_for_timeout(2000)
                     log.info(f"[PolyU]   Now on: {page.url}")
-                    view_all_clicked = True
                     break
             except Exception:
                 continue
-        
-        if not view_all_clicked:
-            log.warning("[PolyU] No 'View All' button found! Scraping current page (limited results)")
-            # Save debug HTML
-            try:
-                debug_dir = Path(__file__).parent.parent / "debug"
-                debug_dir.mkdir(parents=True, exist_ok=True)
-                html_path = debug_dir / "polyu_homepage_no_view_all.html"
-                html_path.write_text(page.content(), encoding="utf-8")
-                log.warning(f"[PolyU]   Saved homepage HTML to: {html_path}")
-            except Exception:
-                pass
     except Exception as e:
         log.warning(f"[PolyU] Error clicking View All: {e}")
 
-    # Pagination: use <select> dropdown or > / >> buttons
-    log.info("[PolyU] Loading jobs with pagination...")
+    # ── For each keyword: search → paginate → collect ──
     all_items = []
     seen_urls = set()
-    current_page = 1
-    max_pages = 50
 
-    # First, detect total pages from the <select> dropdown
-    total_pages = 0
-    try:
-        page_select = page.query_selector('select')
-        if page_select:
-            options = page.evaluate("""(sel) => {
-                const opts = sel.querySelectorAll('option');
-                return Array.from(opts).map(o => parseInt(o.value) || parseInt(o.textContent)).filter(v => v > 0);
-            }""", page_select)
-            if options:
-                total_pages = max(options)
-                log.info(f"[PolyU]   Detected {total_pages} pages from select dropdown")
-    except Exception as e:
-        log.debug(f"[PolyU]   Could not detect total pages: {e}")
+    for kw in keywords:
+        from config import check_stop
+        try:
+            check_stop()
+        except InterruptedError:
+            log.info("[PolyU] Stop requested, exiting...")
+            return []
 
-    # If no select found, cap at max_pages
-    if total_pages == 0:
-        total_pages = max_pages
+        log.info(f"[PolyU] Searching: {kw}")
+        searched = _find_and_use_search_box(page, kw)
 
-    while current_page <= min(total_pages, max_pages):
-        # Extract current page items
-        items = _extract_polyu_cards(page)
+        if searched:
+            kw_items = _extract_all_pages(page, kw)
+        else:
+            log.info(f"[PolyU]   No search box found, scraping all pages (local filter)")
+            kw_items = _extract_all_pages(page, kw)
+            # Local filter
+            kw_words = [w.lower() for w in kw.split() if len(w) > 2]
+            if kw_words:
+                kw_items = [item for item in kw_items
+                            if any(w in (item.get("title") or "").lower() or
+                                   w in (item.get("company") or "").lower()
+                                   for w in kw_words)]
 
-        # Add new items
-        for item in items:
+        for item in kw_items:
             url = item.get("url", "")
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 all_items.append(item)
 
-        log.info(f"[PolyU]   Page {current_page}: {len(all_items)} total jobs")
-
-        if current_page >= min(total_pages, max_pages):
-            break
-
-        # Try strategy 1: use <select> dropdown to jump to next page
-        navigated = False
-        try:
-            page_select = page.query_selector('select')
-            if page_select:
-                next_page = current_page + 1
-                page_select.select_option(str(next_page))
-                page.wait_for_load_state("networkidle", timeout=10000)
-                page.wait_for_timeout(2000)
-                navigated = True
-                log.debug(f"[PolyU]   Selected page {next_page} via dropdown")
-        except Exception as e:
-            log.debug(f"[PolyU]   Select dropdown failed: {e}")
-
-        # Try strategy 2: click > or Next button
-        if not navigated:
-            try:
-                next_btn = page.query_selector(
-                    'a[rel="next"], button:has-text(">"):not(:has-text(">>")), '
-                    'a:has-text("Next"), [aria-label*="next"]'
-                )
-                if next_btn and next_btn.is_visible():
-                    is_disabled = next_btn.get_attribute("disabled") or next_btn.get_attribute("aria-disabled")
-                    if not is_disabled:
-                        next_btn.click()
-                        page.wait_for_load_state("networkidle", timeout=10000)
-                        page.wait_for_timeout(2000)
-                        navigated = True
-            except Exception as e:
-                log.debug(f"[PolyU]   Next button failed: {e}")
-
-        if not navigated:
-            log.info("[PolyU] No more pages")
-            break
-
-        current_page += 1
-    
-    log.info(f"[PolyU] Loaded {len(all_items)} total jobs from {current_page} pages")
-    
-    # Filter locally by keywords
-    # Filter locally by keywords
-    if keywords and keywords != ["intern"]:
-        filtered = []
-        for kw in keywords:
-            kw_words = [w.lower() for w in kw.split() if len(w) > 2]
-            for item in all_items:
-                title = (item.get("title") or "").lower()
-                company = (item.get("company") or "").lower()
-                if any(w in title or w in company for w in kw_words):
-                    if item not in filtered:
-                        filtered.append(item)
-        log.info(f"[PolyU] After keyword filter: {len(filtered)} jobs")
-        # If all filtered out, ignore filter and return all items
-        if filtered:
-            all_items = filtered
-        else:
-            log.warning("[PolyU] All jobs filtered out! Ignoring keyword filter, returning all jobs")
-    else:
-        log.info(f"[PolyU] No keyword filter applied, returning all {len(all_items)} jobs")
+        log.info(f"[PolyU] Searching: {kw} → {len(kw_items)} jobs")
 
     # Convert to Job objects
-    all_jobs = []
-    for item in all_items:
-        all_jobs.append(Job(
-            title=item.get("title", ""),
-            company=item.get("company", "PolyU Job Board"),
-            location="Hong Kong",
-            url=item.get("url", ""),
-            source="PolyU",
-        ))
+    all_jobs = [Job(
+        title=item.get("title", ""),
+        company=item.get("company", "PolyU Job Board"),
+        location="Hong Kong",
+        url=item.get("url", ""),
+        source="PolyU",
+    ) for item in all_items]
 
     log.info(f"[PolyU] Total: {len(all_jobs)} jobs")
     return all_jobs

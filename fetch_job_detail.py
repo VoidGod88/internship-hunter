@@ -160,12 +160,19 @@ def _aggressive_clean(page) -> str:
 
 def _fetch_page_text(url: str, timeout_ms: int = 20_000) -> str:
     """Open URL with Playwright, aggressively clean, return text."""
+    from pathlib import Path
     from playwright.sync_api import sync_playwright
+
+    # Detect if this is a PolyU URL that needs cookies
+    is_polyu = "polyu.edu.hk" in url.lower()
+    cookie_path = Path(__file__).parent / "cookies" / "polyu.json"
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
             page = browser.new_page()
+
+            # Set stealth headers
             page.set_extra_http_headers({
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -174,6 +181,26 @@ def _fetch_page_text(url: str, timeout_ms: int = 20_000) -> str:
                 ),
                 "Accept-Language": "en-US,en;q=0.9,zh-HK;q=0.8",
             })
+
+            # Load cookies for PolyU pages
+            if is_polyu and cookie_path.exists():
+                try:
+                    ctx = browser.new_context()
+                    ctx.add_cookies(json.loads(cookie_path.read_text(encoding="utf-8")))
+                    page.close()
+                    page = ctx.new_page()
+                    page.set_extra_http_headers({
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/124.0.0.0 Safari/537.36"
+                        ),
+                        "Accept-Language": "en-US,en;q=0.9,zh-HK;q=0.8",
+                    })
+                    log.info(f"[fetch_detail] Loaded PolyU cookies from {cookie_path}")
+                except Exception as e:
+                    log.warning(f"[fetch_detail] Failed to load PolyU cookies: {e}")
+
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             page.wait_for_timeout(3000)  # Wait for JS to render
 

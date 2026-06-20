@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 # ── Check dependencies early ──
 try:
     from fastapi import FastAPI, Form, Request, UploadFile, File
-    from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, Response
     import uvicorn
 except ImportError as e:
     print("=" * 60)
@@ -522,8 +522,15 @@ async def api_evaluate(job_id: int, force: bool = False):
         if not result.get("skills_match", True): details.append("技能不匹配")
         if not result.get("education_match", True): details.append("学历不符")
         if not result.get("major_match", True): details.append("专业不符")
+        if not result.get("experience_match", True): details.append("经验不足")
         if result.get("requires_final_year", False) and not result.get("candidate_is_final_year", False):
             details.append("要求final year")
+        
+        # If overall mismatched but no specific detail failed, show LLM reason
+        reason = result.get("reasons", "")
+        if not result.get("overall_match", False) and not details and reason:
+            details.append(reason)
+        
         msg = f"{'✅ Match' if result.get('overall_match') else '❌ Mismatch'} — {', '.join(details) or 'all checks passed'}"
         return JSONResponse({"success": True, "result": result, "message": msg, "overall_match": result.get("overall_match", False)})
     except Exception as e:
@@ -874,6 +881,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<link rel="icon" href="data:,">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Internship Hunter</title>
 <style>
@@ -1031,6 +1039,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
     </div>
     <div style="display:flex;gap:6px;align-items:flex-end;margin-left:8px">
       <button class="btn btn-outline btn-sm" id="btnMatchOverview" onclick="toggleMatchOverview()" style="white-space:nowrap">🤖 Match Overview</button>
+      <button class="btn btn-outline btn-sm" onclick="refreshJobs()" style="white-space:nowrap" title="Reload job list from server">🔄 Refresh</button>
     </div>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
       <button class="btn btn-outline btn-sm" onclick="openSettings()" title="Settings (Ctrl+,)">⚙️ Settings</button>
@@ -1047,8 +1056,10 @@ select.input-sm { min-width:200px; cursor:pointer; }
       </div>
       <div id="detailContent" style="display:none;flex:1;display:flex;flex-direction:column">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
-          <div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <h2 id="detailTitle"></h2>
+            <span id="detailMatchBadge" style="font-size:13px;margin-top:2px"></span>
+          </div>
             <div class="detail-meta">
               <span id="detailCompany"></span>
               <span id="detailLocation"></span>
@@ -1069,7 +1080,15 @@ select.input-sm { min-width:200px; cursor:pointer; }
         <!-- AI Evaluation (moved above description) -->
         <div class="detail-section" id="evalSection" style="display:none">
           <h3>🤖 AI Match Result</h3>
-          <div class="detail-text" id="evalResult"></div>
+          <div id="evalResult">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+              <span id="evalOverallBadge" class="badge" style="font-size:13px;padding:3px 10px"></span>
+              <span id="evalScore" style="font-weight:600;font-size:14px"></span>
+            </div>
+            <div id="evalFieldBadges" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
+            <div id="evalReasons" style="font-size:13px;line-height:1.6;margin-bottom:8px"></div>
+            <div id="evalWarnings"></div>
+          </div>
         </div>
 
         <!-- Job Description -->
@@ -1175,8 +1194,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
     <div class="settings-tabs">
       <div class="settings-tab active" onclick="switchSettingsTab('email')">📧 Email</div>
       <div class="settings-tab" onclick="switchSettingsTab('llm')">🤖 AI / LLM</div>
-      <div class="settings-tab" onclick="switchSettingsTab('polyu')">🏫 PolyU</div>
-      <div class="settings-tab" onclick="switchSettingsTab('cv')">📄 CV & Keywords</div>
+      <div class="settings-tab" onclick="switchSettingsTab('cv')">📄 CV</div>
       <div class="settings-tab" onclick="switchSettingsTab('advanced')">🔧 Advanced</div>
     </div>
 
@@ -1223,25 +1241,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
       </div>
     </div>
 
-    <!-- Tab: PolyU -->
-    <div class="settings-panel" id="settingsPanel-polyu">
-      <div style="background:#e8f4fd;border:1px solid #90caf9;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#1565c0">
-        💡 <b>Tip:</b> You can skip filling password below. Just click <b>"🏫 PolyU Login"</b> on the main page to log in once, and cookies will be saved for future runs.
-      </div>
-      <div class="form-group">
-        <label>PolyU NetID <span style="font-weight:400;color:var(--muted);font-size:11px">(optional if using PolyU Login)</span></label>
-        <input type="text" id="fld_polyu_net_id" placeholder="your_net_id">
-      </div>
-      <div class="form-group">
-        <label>PolyU Password <span style="font-weight:400;color:var(--muted);font-size:11px">(optional if using PolyU Login)</span></label>
-        <div class="input-wrapper">
-          <input type="password" id="fld_polyu_password" placeholder="your_password">
-          <span class="toggle-password" onclick="togglePw('fld_polyu_password', this)">👁</span>
-        </div>
-        <div class="form-hint">Fallback: if cookies expire, password will be used for auto-login.</div>
-      </div>
-    </div>
-
     <!-- Tab: CV & Keywords -->
     <div class="settings-panel" id="settingsPanel-cv">
       <div class="form-group">
@@ -1252,11 +1251,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
           <input type="file" id="cvFileInput2" accept=".pdf" style="display:none" onchange="uploadCV(this)">
         </div>
         <div class="form-hint" id="cvFileStatus">No CV uploaded yet.</div>
-      </div>
-      <div class="form-group">
-        <label>Search Keywords (one per line)</label>
-        <textarea id="fld_search_keywords" rows="4" placeholder="summer internship 2026 computer science&#10;software engineer intern summer 2026"></textarea>
-        <div class="form-hint">These keywords are used to search for jobs. Edit or use "🪄 CV Keywords" button on main page.</div>
       </div>
     </div>
 
@@ -1334,27 +1328,67 @@ evtSource.onmessage = (e) => {
 evtSource.onerror = () => { /* auto-reconnect */ };
 
 // ── Job Selector ──
+function getMatchRank(j) {
+  // 0 = ✅ Match, 1 = ❌ Mismatch, 2 = no eval
+  if (!j.cv_match) return 2;
+  try {
+    return JSON.parse(j.cv_match).overall_match ? 0 : 1;
+  } catch(e) { return 2; }
+}
+
 function refreshJobSelector() {
+  // Sort: match(✅→❌→none) → source → company → title
+  const sorted = [...currentJobs].sort((a, b) => {
+    const mr = getMatchRank(a) - getMatchRank(b);
+    if (mr !== 0) return mr;
+    const srcA = (a.source || "").toLowerCase();
+    const srcB = (b.source || "").toLowerCase();
+    if (srcA !== srcB) return srcA.localeCompare(srcB);
+    const cmpA = (a.company || "").toLowerCase();
+    const cmpB = (b.company || "").toLowerCase();
+    if (cmpA !== cmpB) return cmpA.localeCompare(cmpB);
+    return (a.title || "").localeCompare(b.title || "");
+  });
+
   const sel = document.getElementById("jobSelector");
   const prev = sel.value;
   sel.innerHTML = '<option value="">— Select a job to view details —</option>';
-  currentJobs.forEach((j, idx) => {
+  sorted.forEach((j) => {
     const opt = document.createElement("option");
     opt.value = j.id;
-    const clMark = j.has_cl ? "📝" : "";
     const evalMark = j.cv_match ? (() => {
       try { return JSON.parse(j.cv_match).overall_match ? "✅" : "❌"; }
       catch(e) { return ""; }
     })() : "";
+    const clMark = j.has_cl ? "📝" : "";
     const srcLabel = j.source ? `[${j.source}] ` : "";
-    opt.textContent = `#${idx + 1}  ${srcLabel}${j.title} @ ${j.company}  ${clMark}${evalMark}`;
+    // Short format: [Platform] Title @ Company ✅/❌ 📝
+    const shortTitle = (j.title || "").length > 40 ? (j.title || "").slice(0, 37) + "..." : (j.title || "");
+    opt.textContent = `${srcLabel}${shortTitle} @ ${j.company || ""} ${evalMark}${clMark}`;
     sel.appendChild(opt);
   });
-  if (prev && currentJobs.find(j => String(j.id) === prev)) {
+  // Update currentJobs to match sorted order (so onJobSelect works)
+  currentJobs = sorted;
+  if (prev && sorted.find(j => String(j.id) === prev)) {
     sel.value = prev;
   }
   // Refresh match overview if open
   if (matchOverviewOpen) renderMatchOverview();
+}
+
+async function refreshJobs() {
+  const btn = document.querySelector('[onclick="refreshJobs()"]');
+  if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+  try {
+    const res = await fetch("/api/jobs");
+    const data = await res.json();
+    currentJobs = data.jobs || [];
+    refreshJobSelector();
+    toast(`Refreshed ${currentJobs.length} jobs`, "success");
+  } catch(e) {
+    toast("Failed to refresh: " + e.message, "error");
+  }
+  if (btn) { btn.disabled = false; btn.textContent = "🔄 Refresh"; }
 }
 
 function onJobSelect() {
@@ -1385,21 +1419,71 @@ async function loadJobDetail(id) {
   document.getElementById("detailDesc").textContent = job.description || "(No description yet — click 🌐 Fetch Detail)";
 
   // CV Evaluation
+  const evalSec = document.getElementById("evalSection");
+  const matchBadge = document.getElementById("detailMatchBadge");
   if (job.cv_match) {
     try {
       const r = JSON.parse(job.cv_match);
-      const lines = [];
-      lines.push(`Overall: ${r.overall_match ? "✅ Match" : "❌ Mismatch"}`);
-      if (r.match_score !== undefined) lines.push(`Score: ${r.match_score}/100`);
-      if (r.experience_match !== undefined) lines.push(`Experience: ${r.experience_match ? "✅ Satisfied" : "❌ Insufficient"}`);
-      if (r.reasons) lines.push(`Reasons: ${r.reasons}`);
-      document.getElementById("evalResult").textContent = lines.join("\n");
-      document.getElementById("evalSection").style.display = "block";
+      // ── Overall badge ──
+      const ob = document.getElementById("evalOverallBadge");
+      ob.textContent = r.overall_match ? "✅ Match" : "❌ Mismatch";
+      ob.className = "badge " + (r.overall_match ? "badge-green" : "badge-red");
+
+      // ── Score ──
+      const sc = document.getElementById("evalScore");
+      sc.textContent = r.match_score !== undefined ? `Score: ${r.match_score}/100` : "";
+
+      // ── Field badges (skills / education / major / experience) ──
+      const fb = document.getElementById("evalFieldBadges");
+      fb.innerHTML = "";
+      const fields = [
+        {key: "skills_match", label: "Skills"},
+        {key: "education_match", label: "Education"},
+        {key: "major_match", label: "Major"},
+        {key: "experience_match", label: "Experience"},
+      ];
+      fields.forEach(f => {
+        const v = r[f.key];
+        if (v === undefined) return;
+        const span = document.createElement("span");
+        span.className = "badge " + (v ? "badge-green" : "badge-red");
+        span.textContent = `${f.label}: ${v ? "✅" : "❌"}`;
+        span.style.fontSize = "11px";
+        fb.appendChild(span);
+      });
+
+      // ── Reasons ──
+      const rs = document.getElementById("evalReasons");
+      rs.textContent = r.reasons || "";
+
+      // ── Warnings ──
+      const ws = document.getElementById("evalWarnings");
+      ws.innerHTML = "";
+      if (r.requires_final_year && !r.candidate_is_final_year) {
+        const w = document.createElement("div");
+        w.style.cssText = "font-size:12px;color:var(--orange);margin-top:4px";
+        w.textContent = "⚠️ Job requires final-year students — you are not marked as final year";
+        ws.appendChild(w);
+      }
+      if (r.requires_experience) {
+        const w = document.createElement("div");
+        w.style.cssText = "font-size:12px;color:var(--orange);margin-top:4px";
+        w.textContent = "⚠️ Job requires prior work experience (not internship)";
+        ws.appendChild(w);
+      }
+
+      // ── Badge next to title ──
+      matchBadge.textContent = r.overall_match ? "✅" : "❌";
+      matchBadge.title = r.overall_match ? "Match" : "Mismatch";
+
+      evalSec.style.display = "block";
     } catch(e) {
-      document.getElementById("evalSection").style.display = "none";
+      evalSec.style.display = "none";
+      matchBadge.textContent = "";
     }
   } else {
-    document.getElementById("evalSection").style.display = "none";
+    evalSec.style.display = "none";
+    matchBadge.textContent = "";
   }
 
   // Cover Letter
@@ -1483,6 +1567,16 @@ async function doGenerateCL(btn) {
 async function doEvaluate(btn) {
   if (!currentJobId) return toast("Select a job first", "error");
   const force = (_lastEvalJobId === currentJobId && _lastEvalCached);
+  // Show loading in evalSection
+  document.getElementById("evalSection").style.display = "block";
+  document.getElementById("evalOverallBadge").textContent = "⏳ Evaluating...";
+  document.getElementById("evalOverallBadge").className = "badge badge-gray";
+  document.getElementById("evalScore").textContent = "";
+  document.getElementById("evalFieldBadges").innerHTML = "";
+  document.getElementById("evalReasons").textContent = "";
+  document.getElementById("evalWarnings").innerHTML = "";
+  document.getElementById("detailMatchBadge").textContent = "⏳";
+
   if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
   try {
     const res = await fetch(`/api/evaluate/${currentJobId}?force=${force}`, { method: "POST" });
@@ -1492,12 +1586,22 @@ async function doEvaluate(btn) {
       _lastEvalCached = data.cached || false;
       const label = data.cached ? "📄 Cached — " : "";
       toast(label + data.message, data.overall_match ? "success" : "error");
+      // Update cv_match in currentJobs so UI reflects immediately
+      const jobInList = currentJobs.find(j => j.id === currentJobId);
+      if (jobInList && data.result) {
+        jobInList.cv_match = JSON.stringify(data.result);
+      }
       loadJobDetail(currentJobId);
       refreshJobSelector();
     } else {
       toast(data.error || "Failed", "error");
+      document.getElementById("evalSection").style.display = "none";
+      document.getElementById("detailMatchBadge").textContent = "";
     }
-  } catch(e) { toast("Error: " + e.message, "error"); }
+  } catch(e) { toast("Error: " + e.message, "error");
+    document.getElementById("evalSection").style.display = "none";
+    document.getElementById("detailMatchBadge").textContent = "";
+  }
   if (btn) { btn.disabled = false; btn.textContent = "🤖 AI Evaluate"; }
 }
 
@@ -1802,8 +1906,6 @@ async function openSettings() {
     document.getElementById('fld_llm_api_key').value = envMap['LLM_API_KEY'] || '';
     document.getElementById('fld_llm_base_url').value = envMap['LLM_BASE_URL'] || '';
     document.getElementById('fld_llm_model').value = envMap['LLM_MODEL'] || '';
-    document.getElementById('fld_polyu_net_id').value = envMap['POLYU_NET_ID'] || '';
-    document.getElementById('fld_polyu_password').value = envMap['POLYU_PASSWORD'] || '';
 
     // Parse config.yaml into form fields
     const yaml = d.config_yaml || '';
@@ -1813,12 +1915,6 @@ async function openSettings() {
       const path = cvMatch[1].trim();
       document.getElementById('fld_cv_pdf_path').value = path;
       document.getElementById('cvFileStatus').textContent = path ? '✅ ' + path.split('/').pop().split('\\').pop() : 'No CV uploaded yet.';
-    }
-    // Extract search_keywords
-    const kwMatch = yaml.match(/search_keywords:\s*\n((?:\s*-\s*.+\n?)*)/);
-    if (kwMatch) {
-      const keywords = kwMatch[1].match(/-\s*(.+)/g) || [];
-      document.getElementById('fld_search_keywords').value = keywords.map(k => k.replace(/-\s*/, '').trim()).join('\n');
     }
 
     // Also populate raw editors for advanced tab
@@ -1853,11 +1949,9 @@ async function saveSettings() {
   envMap['LLM_API_KEY'] = document.getElementById('fld_llm_api_key').value.trim();
   envMap['LLM_BASE_URL'] = document.getElementById('fld_llm_base_url').value.trim();
   envMap['LLM_MODEL'] = document.getElementById('fld_llm_model').value.trim();
-  envMap['POLYU_NET_ID'] = document.getElementById('fld_polyu_net_id').value.trim();
-  envMap['POLYU_PASSWORD'] = document.getElementById('fld_polyu_password').value.trim();
 
   // Build .env text
-  const envOrder = ['EMAIL', 'EMAIL_PASSWORD', 'LLM_PROVIDER', 'LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL', 'POLYU_NET_ID', 'POLYU_PASSWORD'];
+  const envOrder = ['EMAIL', 'EMAIL_PASSWORD', 'LLM_PROVIDER', 'LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL'];
   let newEnv = '';
   envOrder.forEach(k => { if (envMap[k] !== undefined) newEnv += k + '=' + envMap[k] + '\n'; });
   // Add any extra keys not in order
@@ -1872,17 +1966,6 @@ async function saveSettings() {
       yaml = yaml.replace(/^cv_pdf_path:.*$/m, 'cv_pdf_path: ' + cvPath);
     } else {
       yaml = 'cv_pdf_path: ' + cvPath + '\n' + yaml;
-    }
-  }
-  // Update search_keywords
-  const kwText = document.getElementById('fld_search_keywords').value.trim();
-  if (kwText) {
-    const kwLines = kwText.split('\n').map(k => '  - ' + k.trim()).join('\n');
-    if (yaml.match(/^search_keywords:/m)) {
-      // Replace entire search_keywords block
-      yaml = yaml.replace(/^search_keywords:\s*\n(?:(?:  - .+\n?)*)/m, 'search_keywords:\n' + kwLines + '\n');
-    } else {
-      yaml += '\nsearch_keywords:\n' + kwLines + '\n';
     }
   }
 
@@ -2049,6 +2132,11 @@ startPolling(30000);
 @app.get("/")
 async def index():
     return HTMLResponse(content=HTML_PAGE, media_type="text/html")
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
 
 
 if __name__ == "__main__":
