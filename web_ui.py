@@ -421,6 +421,8 @@ async def api_generate_cl(job_id: int, force: bool = False):
             job.get("description", "") or "",
             job.get("requirements", "") or "",
             job.get("education_level", "") or "",
+            job.get("url", "") or "",
+            job_id,
         )
         insert_cover_letter(job_id, cl)
         return JSONResponse({"job_id": job_id, "cover_letter": cl})
@@ -442,8 +444,8 @@ async def api_test_email(request: Request):
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
 
-        email_addr = config.email or ""
-        email_pw = config.email_password or ""
+        email_addr = cfg.email or ""
+        email_pw = cfg.email_password or ""
         if not email_addr or not email_pw:
             return JSONResponse({"error": "EMAIL / EMAIL_PASSWORD not configured in .env"}, status_code=400)
 
@@ -480,10 +482,26 @@ async def _evaluate_cv_match(cv_profile: dict, job: dict) -> dict:
             base_url=cfg.llm_base_url or None,
         )
         cv_text = json.dumps(cv_profile, ensure_ascii=False, indent=2)[:3000]
+
+        # Try to get high-quality JD from cache (job_details/{job_id}.json)
+        job_id = job.get('id', 0)
+        job_desc = job.get('description', '')
+        if job_id > 0:
+            cache_path = JOB_DETAILS_DIR / f"{job_id}.json"
+            if cache_path.exists():
+                try:
+                    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+                    cached_desc = cache.get("description", "")
+                    if cached_desc and len(cached_desc) > 200:
+                        log.info(f"[_evaluate_cv_match] Using cached JD from job_details/{job_id}.json ({len(cached_desc)} chars)")
+                        job_desc = cached_desc
+                except Exception as e:
+                    log.warning(f"[_evaluate_cv_match] Failed to read cache: {e}")
+
         job_text = (
             f"Title: {job.get('title', '')}\n"
             f"Company: {job.get('company', '')}\n"
-            f"Description: {job.get('description', '')[:2000]}\n"
+            f"Description: {job_desc[:2000]}\n"
             f"Requirements: {job.get('requirements', '')[:1000]}\n"
         )
         prompt = (

@@ -3,14 +3,29 @@ ai_writer.py — LLM-powered cover letter generator.
 Supports DeepSeek, OpenAI, and any OpenAI-compatible API.
 
 Uses real CV text (from cv_reader) for personalization.
+Reuses fetch_job_detail() from AI Evaluate for high-quality JD extraction.
+Checks job_details/{job_id}.json cache before re-fetching.
 """
 
+import json
 import logging
+from pathlib import Path
 from openai import OpenAI
 from config import config
 from cv_reader import format_cv_for_prompt, load_cv_profile
 
 log = logging.getLogger("hunter")
+
+# Try to import fetch_job_detail for high-quality JD extraction (reuse AI Evaluate logic)
+try:
+    from fetch_job_detail import fetch_job_detail
+    _HAS_FETCH_DETAIL = True
+except ImportError:
+    _HAS_FETCH_DETAIL = False
+    log.warning("[ai_writer] fetch_job_detail not available, using scraped description only")
+
+# Job details cache directory (same as web_ui.JOB_DETAILS_DIR)
+JOB_DETAILS_DIR = Path(__file__).parent / "data" / "job_details"
 
 # ── System Prompt (dynamic CV injected at runtime) ──
 BASE_SYSTEM_PROMPT = """You are helping a student write a professional, personalized cover letter for an internship.
@@ -47,12 +62,73 @@ def _get_client() -> OpenAI:
     )
 
 
+def _get_high_quality_jd(original_desc: str, url: str, job_id: int) -> str:
+    """
+    Get high-quality JD, reusing AI Evaluate cache + fetch_job_detail().
+    Priority:
+    1. job_details/{job_id}.json (cache from AI Evaluate) → use description
+    2. fetch_job_detail(url) → fetch + cache
+    3. fallback to original_desc
+    """
+    # Step 1: Check cache (job_details/{job_id}.json)
+    if job_id > 0 and JOB_DETAILS_DIR.exists():
+        cache_path = JOB_DETAILS_DIR / f"{job_id}.json"
+        if cache_path.exists():
+            try:
+                cache = json.loads(cache_path.read_text(encoding="utf-8"))
+                cached_desc = cache.get("description", "")
+                if cached_desc and len(cached_desc) > 200:
+                    log.info(f"[AI Writer] Using cached JD from job_details/{job_id}.json ({len(cached_desc)} chars)")
+                    return cached_desc
+                # Also check if structured has description
+                structured = cache.get("structured", {})
+                if isinstance(structured, dict):
+                    # structured doesn't have description, but AI Evaluate saves description separately
+                    pass
+            except Exception as e:
+                log.warning(f"[AI Writer] Failed to read cache {cache_path}: {e}")
+
+    # Step 2: Fetch from URL (reuse AI Evaluate logic)
+    if url and _HAS_FETCH_DETAIL:
+        try:
+            log.info(f"[AI Writer] Fetching high-quality JD from URL: {url[:60]}")
+            fetch_result = fetch_job_detail(url)
+            fetched_desc = fetch_result.get("description", "")
+            if fetched_desc and len(fetched_desc) > 200:
+                log.info(f"[AI Writer] Using fetched JD ({len(fetched_desc)} chars)")
+                # Save to cache for next time
+                if job_id > 0:
+                    try:
+                        JOB_DETAILS_DIR.mkdir(parents=True, exist_ok=True)
+                        cache_path = JOB_DETAILS_DIR / f"{job_id}.json"
+                        cache = {}
+                        if cache_path.exists():
+                            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+                        cache["description"] = fetched_desc
+                        cache_path.write_text(
+                            json.dumps(cache, ensure_ascii=False, indent=2),
+                            encoding="utf-8"
+                        )
+                    except Exception:
+                        pass
+                return fetched_desc
+            else:
+                log.info(f"[AI Writer] Fetched JD too short, using original")
+        except Exception as e:
+            log.warning(f"[AI Writer] Failed to fetch JD from URL: {e}")
+
+    # Step 3: Fallback to original description
+    return original_desc
+
+
 def generate_cover_letter(job_title: str, company: str, description: str,
-                          requirements: str = "", education: str = "") -> str:
+                          requirements: str = "", education: str = "",
+                          url: str = "", job_id: int = 0) -> str:
     """
     Generate a personalized cover letter using LLM.
     Uses real CV text for personalization.
-    Falls back to template-based generation if LLM is unavailable.
+    Reuses fetch_job_detail() from AI Evaluate for high-quality JD extraction.
+    Checks job_details/{job_id}.json cache before re-fetching.
     """
     if not config.llm_api_key:
         log.warning("No LLM API key configured, using template-based cover letter")
@@ -62,6 +138,9 @@ def generate_cover_letter(job_title: str, company: str, description: str,
     cv_text = ""
     if config.cv_pdf_path:
         cv_text = format_cv_for_prompt(config.cv_pdf_path)
+
+    # Try to get high-quality JD (reuse AI Evaluate logic + cache)
+    description = _get_high_quality_jd(description, url, job_id)
 
     if not cv_text:
         log.warning("No CV text available, using template fallback")
@@ -169,7 +248,9 @@ def generate_batch(jobs: list) -> list:
         cl = generate_cover_letter(
             job.title, job.company, job.description,
             getattr(job, 'requirements', ''),
-            getattr(job, 'education_level', '')
+            getattr(job, 'education_level', ''),
+            getattr(job, 'url', ''),
+            getattr(job, 'id', 0),
         )
         results.append({
             "job": job,
