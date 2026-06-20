@@ -1,13 +1,14 @@
 """
 scrapers/indeed.py — Indeed HK scraper using Playwright.
 One keyword per search, paginate until no Next button.
+URL built dynamically from config filters (Settings UI).
 """
 
 import time
 import random
 import logging
 from .base import BaseScraper
-from config import check_stop
+from config import check_stop, config
 
 log = logging.getLogger("hunter")
 
@@ -67,11 +68,18 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
 
     for kw in keywords:
         kw_jobs = []
-        base_url = (
-            f"https://hk.indeed.com/jobs?"
-            f"q={kw.replace(' ', '+')}"
-            f"&from=rnonboarding"
-        )
+        # Build URL from config filters
+        params = [f"q={kw.replace(' ', '+')}"]
+        if config.id_date_range:
+            params.append(f"fromage={config.id_date_range}")
+        if config.id_job_type:
+            params.append(f"jt={config.id_job_type}")
+        if config.id_sort_by:
+            params.append(f"sort={config.id_sort_by}")
+        if config.id_radius:
+            params.append(f"radius={config.id_radius}")
+        params.append("l=Hong+Kong")
+        base_url = "https://hk.indeed.com/jobs?" + "&".join(params)
         log.info(f"[Indeed] Searching: {kw} | URL: {base_url}")
         start = 0
         page_num = 0

@@ -111,6 +111,26 @@ linkedin_filters:
   geo_id: "103291313"        # LinkedIn geo ID (103291313=Hong Kong)
   sort_by: "R"               # R=Relevance, DD=Most recent
   posted_within: ""           # past_24h, past_week, past_month, or empty for any time
+
+# JobsDB search filters
+jobsdb_filters:
+  category: "information-communication-technology"  # URL slug: jobs-in-{category}
+  work_type: "on-site"                              # on-site, remote, hybrid
+  daterange: "7"                                    # 1, 3, 7, 14, 30, or empty
+
+# Indeed search filters
+indeed_filters:
+  date_range: "7"             # fromage=7 (past 7 days), 14, 30, or empty
+  job_type: ""                # internship, fulltime, parttime, contract, or empty
+  sort_by: "date"             # date, relevance
+  radius: "50"                # km radius from Hong Kong
+
+# eFinancialCareers search filters
+efc_filters:
+  experience_level: "NO_EXPERIENCE"   # NO_EXPERIENCE, ENTRY_LEVEL, MID_SENIOR, etc.
+  posted_within: ""                    # 1, 7, 14, 30, or empty
+  page_size: "15"                      # results per page (max 50)
+  sort_by: ""                          # date, relevance, or empty
 """
         CONFIG_PATH.write_text(content, encoding="utf-8")
         print(f"[Config] Created {CONFIG_PATH} — please edit it with your settings")
@@ -189,6 +209,23 @@ class Config:
     li_sort_by: str = "R"             # R=Relevance, DD=Most recent
     li_posted_within: str = ""        # past_24h, past_week, past_month, or empty for any time
 
+    # ── JobsDB search filters ──
+    jd_category: str = "information-communication-technology"
+    jd_work_type: str = "on-site"     # on-site, remote, hybrid
+    jd_daterange: str = "7"           # 1, 3, 7, 14, 30, or empty
+
+    # ── Indeed search filters ──
+    id_date_range: str = "7"          # fromage: 7, 14, 30, or empty
+    id_job_type: str = ""             # internship, fulltime, parttime, contract, or empty
+    id_sort_by: str = "date"          # date, relevance
+    id_radius: str = "50"             # km radius
+
+    # ── eFC search filters ──
+    efc_exp_level: str = "NO_EXPERIENCE"  # NO_EXPERIENCE, ENTRY_LEVEL, MID_SENIOR, etc.
+    efc_posted_within: str = ""           # 1, 7, 14, 30, or empty
+    efc_page_size: str = "15"             # max 50
+    efc_sort_by: str = ""                 # date, relevance, or empty for default
+
     @classmethod
     def load(cls) -> "Config":
         cfg = cls()
@@ -259,6 +296,29 @@ class Config:
             cfg.li_geo_id = str(li_filters.get("geo_id", "103291313"))
             cfg.li_sort_by = str(li_filters.get("sort_by", "R"))
             cfg.li_posted_within = str(li_filters.get("posted_within", ""))
+
+        # ── JobsDB Filters ──
+        jd_filters = _yaml_config.get("jobsdb_filters", {})
+        if jd_filters:
+            cfg.jd_category = str(jd_filters.get("category", "information-communication-technology"))
+            cfg.jd_work_type = str(jd_filters.get("work_type", "on-site"))
+            cfg.jd_daterange = str(jd_filters.get("daterange", "7"))
+
+        # ── Indeed Filters ──
+        id_filters = _yaml_config.get("indeed_filters", {})
+        if id_filters:
+            cfg.id_date_range = str(id_filters.get("date_range", "7"))
+            cfg.id_job_type = str(id_filters.get("job_type", ""))
+            cfg.id_sort_by = str(id_filters.get("sort_by", "date"))
+            cfg.id_radius = str(id_filters.get("radius", "50"))
+
+        # ── eFC Filters ──
+        efc_filters = _yaml_config.get("efc_filters", {})
+        if efc_filters:
+            cfg.efc_exp_level = str(efc_filters.get("experience_level", "NO_EXPERIENCE"))
+            cfg.efc_posted_within = str(efc_filters.get("posted_within", ""))
+            cfg.efc_page_size = str(efc_filters.get("page_size", "15"))
+            cfg.efc_sort_by = str(efc_filters.get("sort_by", ""))
 
         return cfg
 

@@ -1,12 +1,14 @@
 """
 scrapers/jobsdb.py — JobsDB HK scraper using Playwright.
 One keyword per search, paginate until no next page.
+URL built dynamically from config filters (Settings UI).
 """
 
 import time
 import random
 import logging
 from .base import BaseScraper
+from config import config
 
 log = logging.getLogger("hunter")
 
@@ -92,26 +94,31 @@ def _check_page_6(page, base_url: str) -> bool:
 def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int = 0) -> list:
     """
     Scrape JobsDB HK for internship jobs.
-    URL format: /{keyword}-jobs-in-information-communication-technology/on-site[?daterange=7][&page=N]
-    Strategy: for each keyword, probe page 6 first.
-      - If page 6 has results → use daterange=7 for full scrape
-      - If page 6 has no results → use normal URL for full scrape
+    URL format from config: /{keyword}-jobs-in-{category}/{work_type}[?daterange=N][&page=N]
     """
     all_jobs = []
     log.info(f"[JobsDB] Searching {len(keywords)} keywords...")
 
     for kw in keywords:
         kw_slug = kw.lower().replace(" ", "-")
-        base_url = f"https://hk.jobsdb.com/{kw_slug}-jobs-in-information-communication-technology/on-site"
+        category = config.jd_category or "information-communication-technology"
+        work_type = config.jd_work_type or "on-site"
+        base_url = f"https://hk.jobsdb.com/{kw_slug}-jobs-in-{category}/{work_type}"
 
-        # Probe page 6 to decide which URL to use
-        has_page_6 = _check_page_6(page, base_url)
-        if has_page_6:
-            log.info(f"[JobsDB]   {kw}: page 6 exists, using daterange=7")
-            scrape_url = base_url + "?daterange=7"
+        # Build URL with filters from config
+        scrape_url = base_url
+        if config.jd_daterange:
+            scrape_url = base_url + f"?daterange={config.jd_daterange}"
+            log.info(f"[JobsDB]   {kw}: daterange={config.jd_daterange}")
         else:
-            log.info(f"[JobsDB]   {kw}: no page 6, using normal URL")
-            scrape_url = base_url
+            # No daterange configured — probe page 6 to decide
+            has_page_6 = _check_page_6(page, base_url)
+            if has_page_6:
+                log.info(f"[JobsDB]   {kw}: page 6 exists, using daterange=7")
+                scrape_url = base_url + "?daterange=7"
+            else:
+                log.info(f"[JobsDB]   {kw}: no page 6, using normal URL")
+                scrape_url = base_url
 
         kw_jobs = _scrape_jobsdb_keyword(page, kw, scrape_url, max_pages=0, max_jobs=0)
         all_jobs.extend(kw_jobs)

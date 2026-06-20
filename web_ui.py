@@ -1194,6 +1194,9 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <div class="settings-tab" onclick="switchSettingsTab('llm')">🤖 AI / LLM</div>
       <div class="settings-tab" onclick="switchSettingsTab('cv')">📄 CV</div>
       <div class="settings-tab" onclick="switchSettingsTab('linkedin')">🔗 LinkedIn</div>
+      <div class="settings-tab" onclick="switchSettingsTab('jobsdb')">🔴 JobsDB</div>
+      <div class="settings-tab" onclick="switchSettingsTab('indeed')">🔵 Indeed</div>
+      <div class="settings-tab" onclick="switchSettingsTab('efc')">🟢 eFC</div>
       <div class="settings-tab" onclick="switchSettingsTab('advanced')">🔧 Advanced</div>
     </div>
 
@@ -1310,6 +1313,128 @@ select.input-sm { min-width:200px; cursor:pointer; }
       </div>
       <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
         ⚡ Changes take effect on next scrape. These filters tell LinkedIn to only return matching jobs.
+      </div>
+    </div>
+
+    <!-- Tab: JobsDB Filters -->
+    <div class="settings-panel" id="settingsPanel-jobsdb">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Category</label>
+          <input type="text" id="fld_jd_category" placeholder="information-communication-technology">
+          <div class="form-hint">URL slug: jobs-in-{category}. Must match JobsDB category slug.</div>
+        </div>
+        <div class="form-group">
+          <label>Work Type</label>
+          <select id="fld_jd_work_type">
+            <option value="on-site">On-site</option>
+            <option value="remote">Remote</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Date Range</label>
+        <select id="fld_jd_daterange">
+          <option value="">Any Time</option>
+          <option value="1">Past 24 Hours</option>
+          <option value="3">Past 3 Days</option>
+          <option value="7">Past 7 Days</option>
+          <option value="14">Past 14 Days</option>
+          <option value="30">Past 30 Days</option>
+        </select>
+      </div>
+      <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
+        ⚡ JobsDB HK URL: /keyword-jobs-in-{category}/{work_type}[?daterange=N]
+      </div>
+    </div>
+
+    <!-- Tab: Indeed Filters -->
+    <div class="settings-panel" id="settingsPanel-indeed">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date Range</label>
+          <select id="fld_id_date_range">
+            <option value="">Any Time</option>
+            <option value="3">Past 3 Days</option>
+            <option value="7">Past 7 Days</option>
+            <option value="14">Past 14 Days</option>
+            <option value="30">Past 30 Days</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Job Type</label>
+          <select id="fld_id_job_type">
+            <option value="">All Types</option>
+            <option value="internship">Internship</option>
+            <option value="fulltime">Full-time</option>
+            <option value="parttime">Part-time</option>
+            <option value="contract">Contract</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Sort By</label>
+          <select id="fld_id_sort_by">
+            <option value="date">Most Recent</option>
+            <option value="relevance">Relevance</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Radius (km)</label>
+          <input type="text" id="fld_id_radius" placeholder="50">
+          <div class="form-hint">Search radius from Hong Kong. 50 = 50km.</div>
+        </div>
+      </div>
+      <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
+        ⚡ Indeed HK URL: /jobs?q=...&l=Hong+Kong&fromage=N&jt=type&sort=sort
+      </div>
+    </div>
+
+    <!-- Tab: eFC Filters -->
+    <div class="settings-panel" id="settingsPanel-efc">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Experience Level</label>
+          <select id="fld_efc_exp_level">
+            <option value="">Any Level</option>
+            <option value="NO_EXPERIENCE">No Experience</option>
+            <option value="ENTRY_LEVEL">Entry Level</option>
+            <option value="MID_SENIOR">Mid-Senior</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sort By</label>
+          <select id="fld_efc_sort_by">
+            <option value="">Default</option>
+            <option value="date">Most Recent</option>
+            <option value="relevance">Relevance</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Posted Within</label>
+          <select id="fld_efc_posted_within">
+            <option value="">Any Time</option>
+            <option value="1">Past 24 Hours</option>
+            <option value="7">Past 7 Days</option>
+            <option value="14">Past 14 Days</option>
+            <option value="30">Past 30 Days</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Page Size</label>
+          <select id="fld_efc_page_size">
+            <option value="15">15</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
+        ⚡ eFinancialCareers HK: /jobs/{keyword}/in-hong-kong?filters.experienceLevel=...
       </div>
     </div>
 
@@ -2041,6 +2166,38 @@ async function openSettings() {
       });
     }
 
+    // Parse JobsDB filters from YAML
+    const jdSection = yamlText.match(/^jobsdb_filters:[\s\S]*?(?=\n\S|\n*$)/m);
+    if (jdSection) {
+      const jdYaml = jdSection[0];
+      const getJd = (key, def) => { const m = jdYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
+      document.getElementById('fld_jd_category').value = getJd('category', 'information-communication-technology');
+      document.getElementById('fld_jd_work_type').value = getJd('work_type', 'on-site');
+      document.getElementById('fld_jd_daterange').value = getJd('daterange', '7');
+    }
+
+    // Parse Indeed filters from YAML
+    const idSection = yamlText.match(/^indeed_filters:[\s\S]*?(?=\n\S|\n*$)/m);
+    if (idSection) {
+      const idYaml = idSection[0];
+      const getId = (key, def) => { const m = idYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
+      document.getElementById('fld_id_date_range').value = getId('date_range', '7');
+      document.getElementById('fld_id_job_type').value = getId('job_type', '');
+      document.getElementById('fld_id_sort_by').value = getId('sort_by', 'date');
+      document.getElementById('fld_id_radius').value = getId('radius', '50');
+    }
+
+    // Parse eFC filters from YAML
+    const efcSection = yamlText.match(/^efc_filters:[\s\S]*?(?=\n\S|\n*$)/m);
+    if (efcSection) {
+      const efcYaml = efcSection[0];
+      const getEfc = (key, def) => { const m = efcYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
+      document.getElementById('fld_efc_exp_level').value = getEfc('experience_level', 'NO_EXPERIENCE');
+      document.getElementById('fld_efc_posted_within').value = getEfc('posted_within', '');
+      document.getElementById('fld_efc_page_size').value = getEfc('page_size', '15');
+      document.getElementById('fld_efc_sort_by').value = getEfc('sort_by', '');
+    }
+
     // Show config warnings if any
     const warnEl = document.getElementById('settingsMsg');
     if (d.warnings && d.warnings.length > 0) {
@@ -2108,6 +2265,55 @@ async function saveSettings() {
     yaml = yaml.replace(/^linkedin_filters:[\s\S]*?(?=\n\S|\n*$)/m, liFilterBlock.trimEnd());
   } else {
     yaml = yaml.trimEnd() + '\n\n' + liFilterBlock;
+  }
+
+  // JobsDB filters
+  const jdCategory = document.getElementById('fld_jd_category').value.trim() || 'information-communication-technology';
+  const jdWorkType = document.getElementById('fld_jd_work_type').value;
+  const jdDaterange = document.getElementById('fld_jd_daterange').value;
+  const jdFilterBlock =
+    "jobsdb_filters:\n" +
+    "  category: \"" + jdCategory + "\"\n" +
+    "  work_type: \"" + jdWorkType + "\"\n" +
+    "  daterange: \"" + jdDaterange + "\"\n";
+  if (yaml.match(/^jobsdb_filters:/m)) {
+    yaml = yaml.replace(/^jobsdb_filters:[\s\S]*?(?=\n\S|\n*$)/m, jdFilterBlock.trimEnd());
+  } else {
+    yaml = yaml.trimEnd() + '\n\n' + jdFilterBlock;
+  }
+
+  // Indeed filters
+  const idDateRange = document.getElementById('fld_id_date_range').value;
+  const idJobType = document.getElementById('fld_id_job_type').value;
+  const idSortBy = document.getElementById('fld_id_sort_by').value;
+  const idRadius = document.getElementById('fld_id_radius').value.trim() || '50';
+  const idFilterBlock =
+    "indeed_filters:\n" +
+    "  date_range: \"" + idDateRange + "\"\n" +
+    "  job_type: \"" + idJobType + "\"\n" +
+    "  sort_by: \"" + idSortBy + "\"\n" +
+    "  radius: \"" + idRadius + "\"\n";
+  if (yaml.match(/^indeed_filters:/m)) {
+    yaml = yaml.replace(/^indeed_filters:[\s\S]*?(?=\n\S|\n*$)/m, idFilterBlock.trimEnd());
+  } else {
+    yaml = yaml.trimEnd() + '\n\n' + idFilterBlock;
+  }
+
+  // eFC filters
+  const efcExpLevel = document.getElementById('fld_efc_exp_level').value;
+  const efcPostedWithin = document.getElementById('fld_efc_posted_within').value;
+  const efcPageSize = document.getElementById('fld_efc_page_size').value;
+  const efcSortBy = document.getElementById('fld_efc_sort_by').value;
+  const efcFilterBlock =
+    "efc_filters:\n" +
+    "  experience_level: \"" + efcExpLevel + "\"\n" +
+    "  posted_within: \"" + efcPostedWithin + "\"\n" +
+    "  page_size: \"" + efcPageSize + "\"\n" +
+    "  sort_by: \"" + efcSortBy + "\"\n";
+  if (yaml.match(/^efc_filters:/m)) {
+    yaml = yaml.replace(/^efc_filters:[\s\S]*?(?=\n\S|\n*$)/m, efcFilterBlock.trimEnd());
+  } else {
+    yaml = yaml.trimEnd() + '\n\n' + efcFilterBlock;
   }
 
   // Save via API

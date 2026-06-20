@@ -3,9 +3,7 @@ scrapers/efc.py — eFinancialCareers HK scraper.
 
 eFC HK uses clean URL pattern for search:
   https://www.efinancialcareers.hk/jobs/{keyword-slug}
-
-Example:
-  https://www.efinancialcareers.hk/jobs/llm
+URL built dynamically from config filters (Settings UI).
 """
 import logging
 import random
@@ -13,7 +11,7 @@ import time
 import urllib.parse
 from pathlib import Path
 from .base import BaseScraper
-from config import check_stop
+from config import check_stop, config
 
 log = logging.getLogger("hunter")
 
@@ -23,20 +21,25 @@ BASE = "https://www.efinancialcareers.hk"
 def _build_url(keyword: str) -> str:
     slug = keyword.lower().replace(" ", "-")
     q = urllib.parse.quote(keyword.lower(), safe="+")  # keep + for spaces
-    return (
-        f"{BASE}/jobs/{slug}/in-hong-kong"
-        f"?q={q}"
-        f"&countryCode=HK"
-        f"&radius=40"
-        f"&radiusUnit=km"
-        f"&pageSize=15"
-        f"&filters.experienceLevel=NO_EXPERIENCE"
-        f"&filters.locationPath=Asia%2FHong+Kong"
-        f"&currencyCode=HKD"
-        f"&language=en"
-        f"&includeUnspecifiedSalary=true"
-        f"&enableVectorSearch=true"
-    )
+    params = [
+        f"q={q}",
+        "countryCode=HK",
+        "radius=40",
+        "radiusUnit=km",
+        f"pageSize={config.efc_page_size or '15'}",
+        "filters.locationPath=Asia%2FHong+Kong",
+        "currencyCode=HKD",
+        "language=en",
+        "includeUnspecifiedSalary=true",
+        "enableVectorSearch=true",
+    ]
+    if config.efc_exp_level:
+        params.append(f"filters.experienceLevel={config.efc_exp_level}")
+    if config.efc_posted_within:
+        params.append(f"filters.postedWithin={config.efc_posted_within}")
+    if config.efc_sort_by:
+        params.append(f"sortBy={config.efc_sort_by}")
+    return f"{BASE}/jobs/{slug}/in-hong-kong?{'&'.join(params)}"
 
 
 def _parse_cards(page) -> list:
