@@ -1565,6 +1565,9 @@ function refreshJobSelector() {
   currentJobs = sorted;
   if (prev && sorted.find(j => String(j.id) === prev)) {
     sel.value = prev;
+  } else {
+    // No valid previous selection — force select the empty option
+    sel.value = "";
   }
   // Refresh match overview if open
   if (matchOverviewOpen) renderMatchOverview();
@@ -1588,8 +1591,10 @@ async function refreshJobs() {
 }
 
 function onJobSelect() {
-  const id = parseInt(document.getElementById("jobSelector").value);
-  if (!id) {
+  const sel = document.getElementById("jobSelector");
+  const val = sel.value;
+  // Use strict check: empty string means no selection
+  if (val === "") {
     document.getElementById("emptyState").style.display = "flex";
     document.getElementById("detailContent").style.display = "none";
     currentJobId = null;
@@ -1600,6 +1605,7 @@ function onJobSelect() {
     document.getElementById("detailUrl").style.display = "none";
     return;
   }
+  const id = parseInt(val);
   currentJobId = id;
   loadJobDetail(id);
 }
@@ -2563,6 +2569,9 @@ startPolling(30000);
 
 // Ensure initial state is correct on page load
 document.addEventListener("DOMContentLoaded", () => {
+  // Force select the empty option on page load
+  const sel = document.getElementById("jobSelector");
+  sel.value = "";
   onJobSelect();
 });
 
