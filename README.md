@@ -37,7 +37,9 @@ Scrape Jobs → WIE Filter → AI Analysis → Cover Letter → Track & Send
 - **🔐 LinkedIn Cookie Login** — One-click browser login saves cookies, bypassing Cloudflare detection
 - **🎮 CV-Generated Keywords** — One-click button extracts search keywords from your CV and fills the keyword input
 - **📄 Job Detail + Smart Cache** — Fetch full job description via LLM; caches to `job_details/{job_id}.json` to avoid re-fetching
-- **📝 AI Cover Letters** — DeepSeek / OpenAI compatible API; generates role-specific, personalized cover letters (reuses cached job details)
+- **📝 AI Cover Letters** — DeepSeek / OpenAI compatible API; generates role-specific, personalized cover letters (reuses AI Analyze cached data — all structured fields, not just description)
+- **📄 Full JD in Analysis** — AI Analysis displays the complete original job description at the top, alongside structured LLM extraction
+- **🔒 Generate CL Gate** — Cover letter generation requires running AI Analysis first (backend check + toast prompt), ensuring high-quality input
 - **✉️ Test Email** — Built-in test email function to verify Gmail SMTP config before sending real applications
 - **🌐 FastAPI Web UI** — Clean native HTML/JS interface: configure, run pipeline, review jobs, send emails — all in one page
 - **⚙️ Built-in Config Panel** — Edit all settings (.env and config.yaml) directly in the UI
@@ -145,15 +147,18 @@ Based on PolyU COMP WIE FAQ — ineligible jobs are **discarded** at the filteri
 │  Job List (left)     │  Job Detail (right)          │
 │  ┌────────────────┐  │  ┌────────────────────────┐ │
 │  │ Dropdown select │  │  │ Title, Company, URL    │ │
-│  │ Job rows       │  │  │ AI Match Score          │ │
+│  │ Job rows       │  │  │ AI Match + Detail       │ │
 │  │ [WIE?] [CV♟] │  │  │ Description + CL Editor │ │
 │  └────────────────┘  │  └────────────────────────┘ │
 ├──────────────────────┴──────────────────────────────┤
 │  Control Panel                                      │
 │  [Keywords...] [♟ CV Keywords] [🔐 LinkedIn Login] │
 │  [✓ LinkedIn] [✓ JobsDB] [✓ Indeed] [✓ eFC]    │
-│  [✓ Manual]                                        │
+│  [✓ Manual] [✓ PolyU]                            │
 │  [▶ Run] [⏹ Stop]                                │
+├─────────────────────────────────────────────────────┤
+│  Action Row                          [🔗 Open Original]│
+│  [📝 Generate CL] [🤖 AI Analyze] [📧 Apply]    │
 ├─────────────────────────────────────────────────────┤
 │  Live Log (collapsible)                           │
 └─────────────────────────────────────────────────────┘
@@ -166,11 +171,11 @@ Based on PolyU COMP WIE FAQ — ineligible jobs are **discarded** at the filteri
 | **🎮 CV Keywords** | Extracts search keywords from your uploaded CV via LLM |
 | **🔐 LinkedIn Login** | Opens browser for manual LinkedIn login; saves cookies (bypasses Cloudflare) |
 | **▶ Run** | Starts the scraping pipeline |
-| **🤖 AI Match** | Evaluates selected job against your CV (skills, education, match score) |
-| **📄 Fetch Detail** | Re-opens job page, extracts structured info via LLM (cached after first run) |
-| **✨ Generate CL** | Generates AI cover letter for the selected job (reuses cached job details) |
+| **🤖 AI Analyze** | Fetches full job detail via LLM, displays structured info + full JD (cached after first run); **required before Generate CL** |
+| **📝 Generate CL** | Generates AI cover letter (reuses AI Analyze cached data — all structured fields); gated: requires AI Analyze first |
+| **📧 Apply** | Opens email preview modal; review & send application via Gmail SMTP |
+| **🔗 Open Original** | Opens original job URL in new tab (located next to Apply button) |
 | **📧 Test Email** | Sends a test email to verify SMTP config |
-| **✉️ Apply** | Sends application email with CV attachment |
 
 ---
 
@@ -229,9 +234,11 @@ Step 3: Review (user-driven)
   → View AI-extracted job info
 
 Step 4: Apply (manual)
-  ["✨ Generate CL"] → AI cover letter (reuses cached job details)
-  → Review & edit
-  → ["✉️ Apply"] → Send via Gmail SMTP
+  ["🤖 AI Analyze"] → Fetches full JD via LLM, displays structured info + full description (cached)
+  → ["📝 Generate CL"] → AI cover letter (reuses ALL structured fields from AI Analyze)
+      ⚠️ Gate: must run AI Analyze first (backend check + toast prompt)
+  → Review & edit in UI
+  → ["📧 Apply"] → Email preview modal → Send via Gmail SMTP
 ```
 
 ### Smart Caching (v1.0 New)
@@ -271,21 +278,47 @@ LinkedIn has strong Cloudflare protection that blocks automated scrapers. This p
 
 ---
 
-## 📝 v1.0 Changelog
+## 📝 Changelog
 
-### Added
+### Latest Updates (2026-06-21)
+
+#### Added
+- **AI Writer reuses AI Analyze data** — Cover letter generation now receives all structured fields (requirements, benefits, application_materials, visa_sponsorship, etc.) as a JSON block, not just the description — no more missing details from LLM summarization
+- **Full JD display in AI Analysis** — `📑 AI Extracted Detail` now shows the complete original job description at the top (not truncated)
+- **Generate CL gate** — Backend check: `POST /api/generate-cl/{id}` returns error if `job_details/{id}.json` cache doesn't exist; frontend toasts "请先运行 AI Analysis（📑 按钮）"
+- **`description` saved in cache** — `fetch_job_detail.py:analyze_job()` now returns the original full description; `api_analyze` writes it to the cache file
+- **Selector shows continuous numbering + real ID** — Dropdown now displays `#1 (ID:101) [Source] Title @ Company` for clarity
+
+#### Fixed
+- **AI Match Result not displaying** — `doAnalyze` success callback now writes `cv_match` into `currentJobs[]` before calling `loadJobDetail()`, so the match section renders immediately
+- **Text alignment in structured content** — `#structuredContent p` now uses `text-align: justify`; `ul` gets `padding-left: 20px`; `li` gets `line-height: 1.7`
+- **Open Original button blocking text** — Moved from above action-row to inside it, adjacent to Apply button
+- **Select Job / Open Original overflow** — Both now use `text-overflow: ellipsis` with `max-width` (480px / 50%) to handle long titles/URLs
+- **`detail-text` ID conflict** — Renamed to `detailText` to avoid `getElementById` conflict with `class="detail-text"`
+
+#### Changed
+- **`ai_writer.py` system prompt rewritten** — Now explicitly instructs the LLM how to use each JSON field (requirements, application_materials, visa_sponsorship, etc.) when writing the cover letter
+- **`_get_high_quality_jd()` returns dict** — Now returns `{"description": ..., "structured": ...}` instead of just a string
+- **`mailer.py` shared `send_email()`** — Test Email and Send Application now both use the same SMTP function
+- **`cv_match` stored in SQLite** — Match results persist in `jobs.cv_match` field (survives cache deletion)
+
+---
+
+### v1.0 (2026-06-19)
+
+#### Added
 - **Smart Job Detail Cache** — `fetch_job_detail()` now caches to `job_details/{job_id}.json`; AI Writer and AI Evaluate both reuse the cache to avoid duplicate fetching
 - **Test Email Function** — Settings panel now has a "Test Email" section; enter recipient email → sends fixed test message via Gmail SMTP to verify config
 - **Stealth Module** — Added `stealth.py` for Playwright anti-detection (used by all scrapers)
 
-### Fixed
+#### Fixed
 - **eFC scraper** — Fixed `seen_hrefs` global pollution bug (per-keyword dedup sets were shared, causing cross-keyword filtering)
 - **eFC infinite scroll** — Upgraded from `keyboard.press("End")` to `Stealth.human_scroll()` with smart stop condition (4 rounds no new cards)
 - **Indeed Cloudflare** — Added retry logic (detect "Just a moment..." challenge, wait 15s, retry up to 2×)
 - **Indeed keyword filtering** — Added client-side title filtering to remove recommended jobs that don't match search keywords
 - **`config` vs `cfg` naming** — Fixed `api_test_email` using `config.email` instead of `cfg.email` (caused NameError)
 
-### Removed
+#### Removed
 - **Dry run mode** — Removed `dry_run` parameter from `mailer.py`, `database.py`, and `config.py` (replaced by Test Email function)
 - **Indeed Settings tab** — Removed (Indeed filter `sc=0kf:attr()` format too complex to reverse-engineer)
 
