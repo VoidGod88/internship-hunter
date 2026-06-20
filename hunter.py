@@ -287,7 +287,7 @@ def run_scrapers(
                 )
                 if _cookie_path.exists():
                     log.info(f"[LinkedIn] Loaded cookies from {_cookie_path}")
-                lj = scrapers.scrape_linkedin(page, keywords, max_pages=0)
+                lj = scrapers.scrape_linkedin(page, keywords)
                 all_jobs += lj
                 # Save cookies for next run (even if 0 jobs, cookies may have been refreshed)
                 try:

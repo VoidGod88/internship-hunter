@@ -26,8 +26,8 @@ _working_selector = None  # Will be detected at runtime
 
 # ── Tunable scroll behaviour ──
 SCROLL_PAUSE_MS = 1500          # wait between scrolls (LinkedIn needs time to lazy-load)
-SCROLL_MAX_NO_NEW = 2           # stop after N consecutive scrolls that add 0 new cards
-SCROLL_MAX_ROUNDS = 80          # hard cap so a misbehaving page can't loop forever
+SCROLL_MAX_NO_NEW = 4           # stop after N consecutive scrolls that add 0 new cards
+SCROLL_MAX_ROUNDS = 200         # hard cap so a misbehaving page can't loop forever
 
 
 def _detect_selector(page) -> str:
@@ -132,15 +132,20 @@ def _scroll_to_bottom(page) -> int:
     return _count_cards(page)
 
 
-def _scrape_keyword(page, kw: str, max_pages: int) -> list:
-    """Scrape a single keyword using infinite scroll (more reliable than start=)."""
+def _scrape_keyword(page, kw: str) -> list:
+    """Scrape a single keyword using infinite scroll."""
     import urllib.parse
     # Reset selector detection for each keyword
     global _working_selector
     _working_selector = None
     encoded_kw = urllib.parse.quote(kw)
-    # Explicitly set location to Hong Kong SAR to avoid defaulting to other countries
-    url = f"https://www.linkedin.com/jobs/search/?keywords={encoded_kw}&location=Hong%20Kong%20SAR&origin=SWITCH_SEARCH_VERTICAL"
+    # LinkedIn search with filters: entry-level, F/P/I job types, on-site, Hong Kong, sorted by relevance
+    url = (
+        f"https://www.linkedin.com/jobs/search/"
+        f"?f_E=1&f_JT=F%2CP%2CI&f_WT=1&geoId=103291313"
+        f"&keywords={encoded_kw}&origin=JOB_SEARCH_PAGE_JOB_FILTER"
+        f"&sortBy=R&spellCorrectionEnabled=true"
+    )
     log.info(f"[LinkedIn] Searching: {kw} | URL: {url}")
 
     try:
@@ -239,9 +244,7 @@ def _scrape_keyword(page, kw: str, max_pages: int) -> list:
 
         total_now = len(jobs_for_kw)
 
-        # Check if we should stop
-        if max_pages > 0 and total_now >= max_pages * 25:
-            break
+        # Check if no new cards for too long (page fully loaded)
         if total_now == prev_count:
             no_new_rounds += 1
             if no_new_rounds >= SCROLL_MAX_NO_NEW:
@@ -258,18 +261,17 @@ def _scrape_keyword(page, kw: str, max_pages: int) -> list:
     return jobs_for_kw
 
 
-def scrape_linkedin(page, keywords: list[str], max_pages: int = 0) -> list:
+def scrape_linkedin(page, keywords: list[str]) -> list:
     """
-    Scrape LinkedIn HK internship jobs, one keyword per search, infinite scroll.
-    - max_pages=0 (default) = scroll until no new cards for SCROLL_MAX_NO_NEW rounds
-    - max_pages>0 = cap at that many "pages" (~25 cards each)
-    - Final dedup by (title, company) across all keywords.
+    Scrape LinkedIn HK jobs, one keyword per search, infinite scroll.
+    No page limit — scrolls until LinkedIn stops returning new results.
+    Final dedup by (title, company) across all keywords.
     """
     jobs: list = []
     log.info(f"[LinkedIn] Searching {len(keywords)} keywords...")
 
     for kw in keywords:
-        kw_jobs = _scrape_keyword(page, kw, max_pages)
+        kw_jobs = _scrape_keyword(page, kw)
         jobs.extend(kw_jobs)
         if kw_jobs:
             log.info(f"[LinkedIn]   {kw}: {len(kw_jobs)} jobs (sample: {kw_jobs[0].title[:40]})")
