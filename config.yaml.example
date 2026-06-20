@@ -41,3 +41,12 @@ email_settings:
   subject_template: Application for {job_title} – Summer Internship
   attach_cv: true
   delay_seconds: 5
+
+# LinkedIn search filters (customizable via Settings UI)
+linkedin_filters:
+  experience_level: "1"       # 1=Entry, 2=Associate, 3=Mid-Senior, 4=Director, 5=Executive, 6=Internship
+  job_types: "F,P,I"         # F=Full-time, P=Part-time, I=Internship, C=Contract, T=Temporary, V=Volunteer
+  work_types: "1"            # 1=On-site, 2=Remote, 3=Hybrid
+  geo_id: "103291313"        # LinkedIn geo ID (103291313=Hong Kong)
+  sort_by: "R"               # R=Relevance, DD=Most recent
+  posted_within: ""           # past_24h, past_week, past_month, or empty for any time

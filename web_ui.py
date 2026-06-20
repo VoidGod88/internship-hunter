@@ -1193,6 +1193,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <div class="settings-tab active" onclick="switchSettingsTab('email')">📧 Email</div>
       <div class="settings-tab" onclick="switchSettingsTab('llm')">🤖 AI / LLM</div>
       <div class="settings-tab" onclick="switchSettingsTab('cv')">📄 CV</div>
+      <div class="settings-tab" onclick="switchSettingsTab('linkedin')">🔗 LinkedIn</div>
       <div class="settings-tab" onclick="switchSettingsTab('advanced')">🔧 Advanced</div>
     </div>
 
@@ -1249,6 +1250,66 @@ select.input-sm { min-width:200px; cursor:pointer; }
           <input type="file" id="cvFileInput2" accept=".pdf" style="display:none" onchange="uploadCV(this)">
         </div>
         <div class="form-hint" id="cvFileStatus">No CV uploaded yet.</div>
+      </div>
+    </div>
+
+    <!-- Tab: LinkedIn Filters -->
+    <div class="settings-panel" id="settingsPanel-linkedin">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Experience Level</label>
+          <select id="fld_li_exp_level">
+            <option value="1">Entry Level</option>
+            <option value="2">Associate</option>
+            <option value="3">Mid-Senior</option>
+            <option value="4">Director</option>
+            <option value="5">Executive</option>
+            <option value="6">Internship</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sort By</label>
+          <select id="fld_li_sort_by">
+            <option value="R">Relevance</option>
+            <option value="DD">Most Recent</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Job Types</label>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:4px">
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="F" id="fld_li_jt_F"> Full-time</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="P" id="fld_li_jt_P"> Part-time</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="I" id="fld_li_jt_I"> Internship</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="C" id="fld_li_jt_C"> Contract</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Work Type</label>
+        <select id="fld_li_work_types">
+          <option value="1">On-site</option>
+          <option value="2">Remote</option>
+          <option value="3">Hybrid</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Location (geoId)</label>
+          <input type="text" id="fld_li_geo_id" placeholder="103291313">
+          <div class="form-hint">103291313 = Hong Kong. Find others at LinkedIn.</div>
+        </div>
+        <div class="form-group">
+          <label>Posted Within</label>
+          <select id="fld_li_posted_within">
+            <option value="">Any Time</option>
+            <option value="past_24h">Past 24 Hours</option>
+            <option value="past_week">Past Week</option>
+            <option value="past_month">Past Month</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
+        ⚡ Changes take effect on next scrape. These filters tell LinkedIn to only return matching jobs.
       </div>
     </div>
 
@@ -1962,6 +2023,24 @@ async function openSettings() {
     document.getElementById('envEditor').value = d.env || '';
     document.getElementById('yamlEditor').value = d.config_yaml || '';
 
+    // Parse linkedin_filters from YAML
+    const yamlText = d.config_yaml || '';
+    const liSection = yamlText.match(/^linkedin_filters:[\s\S]*?(?=\n\S|\n*$)/m);
+    if (liSection) {
+      const liYaml = liSection[0];
+      const getLi = (key, def) => { const m = liYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
+      document.getElementById('fld_li_exp_level').value = getLi('experience_level', '1');
+      document.getElementById('fld_li_sort_by').value = getLi('sort_by', 'R');
+      document.getElementById('fld_li_work_types').value = getLi('work_types', '1');
+      document.getElementById('fld_li_geo_id').value = getLi('geo_id', '103291313');
+      document.getElementById('fld_li_posted_within').value = getLi('posted_within', '');
+      // Job types checkboxes
+      const jt = getLi('job_types', 'F,P,I');
+      ['F','P','I','C'].forEach(v => {
+        document.getElementById('fld_li_jt_' + v).checked = jt.split(',').some(s => s.trim() === v);
+      });
+    }
+
     // Show config warnings if any
     const warnEl = document.getElementById('settingsMsg');
     if (d.warnings && d.warnings.length > 0) {
@@ -2008,6 +2087,27 @@ async function saveSettings() {
     } else {
       yaml = 'cv_pdf_path: ' + cvPath + '\n' + yaml;
     }
+  }
+
+  // Update linkedin_filters section in YAML
+  const liExpLevel = document.getElementById('fld_li_exp_level').value;
+  const liSortBy = document.getElementById('fld_li_sort_by').value;
+  const liWorkTypes = document.getElementById('fld_li_work_types').value;
+  const liGeoId = document.getElementById('fld_li_geo_id').value.trim() || '103291313';
+  const liPostedWithin = document.getElementById('fld_li_posted_within').value;
+  const liJobTypes = ['F','P','I','C'].filter(v => document.getElementById('fld_li_jt_' + v).checked).join(',');
+  const liFilterBlock =
+    "linkedin_filters:\n" +
+    "  experience_level: \"" + liExpLevel + "\"\n" +
+    "  job_types: \"" + liJobTypes + "\"\n" +
+    "  work_types: \"" + liWorkTypes + "\"\n" +
+    "  geo_id: \"" + liGeoId + "\"\n" +
+    "  sort_by: \"" + liSortBy + "\"\n" +
+    "  posted_within: \"" + liPostedWithin + "\"\n";
+  if (yaml.match(/^linkedin_filters:/m)) {
+    yaml = yaml.replace(/^linkedin_filters:[\s\S]*?(?=\n\S|\n*$)/m, liFilterBlock.trimEnd());
+  } else {
+    yaml = yaml.trimEnd() + '\n\n' + liFilterBlock;
   }
 
   // Save via API

@@ -135,17 +135,30 @@ def _scroll_to_bottom(page) -> int:
 def _scrape_keyword(page, kw: str) -> list:
     """Scrape a single keyword using infinite scroll."""
     import urllib.parse
+    from config import config
     # Reset selector detection for each keyword
     global _working_selector
     _working_selector = None
     encoded_kw = urllib.parse.quote(kw)
-    # LinkedIn search with filters: entry-level, F/P/I job types, on-site, Hong Kong, sorted by relevance
-    url = (
-        f"https://www.linkedin.com/jobs/search/"
-        f"?f_E=1&f_JT=F%2CP%2CI&f_WT=1&geoId=103291313"
-        f"&keywords={encoded_kw}&origin=JOB_SEARCH_PAGE_JOB_FILTER"
-        f"&sortBy=R&spellCorrectionEnabled=true"
-    )
+    # LinkedIn search with filters from config (customizable via Settings UI)
+    params = []
+    if config.li_exp_level:
+        params.append(f"f_E={config.li_exp_level}")
+    if config.li_job_types:
+        encoded_jt = urllib.parse.quote(config.li_job_types)
+        params.append(f"f_JT={encoded_jt}")
+    if config.li_work_types:
+        params.append(f"f_WT={config.li_work_types}")
+    if config.li_geo_id:
+        params.append(f"geoId={config.li_geo_id}")
+    if config.li_sort_by:
+        params.append(f"sortBy={config.li_sort_by}")
+    if config.li_posted_within:
+        params.append(f"f_TPR={config.li_posted_within}")
+    params.append(f"keywords={encoded_kw}")
+    params.append("origin=JOB_SEARCH_PAGE_JOB_FILTER")
+    params.append("spellCorrectionEnabled=true")
+    url = "https://www.linkedin.com/jobs/search/?" + "&".join(params)
     log.info(f"[LinkedIn] Searching: {kw} | URL: {url}")
 
     try:

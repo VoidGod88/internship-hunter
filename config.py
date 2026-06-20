@@ -102,6 +102,15 @@ email_settings:
   subject_template: Application for {job_title} – Summer Internship
   attach_cv: true
   delay_seconds: 5
+
+# LinkedIn search filters (customizable via Settings UI)
+linkedin_filters:
+  experience_level: "1"       # 1=Entry, 2=Associate, 3=Mid-Senior, 4=Director, 5=Executive, 6=Internship
+  job_types: "F,P,I"         # F=Full-time, P=Part-time, I=Internship, C=Contract, T=Temporary, V=Volunteer
+  work_types: "1"            # 1=On-site, 2=Remote, 3=Hybrid
+  geo_id: "103291313"        # LinkedIn geo ID (103291313=Hong Kong)
+  sort_by: "R"               # R=Relevance, DD=Most recent
+  posted_within: ""           # past_24h, past_week, past_month, or empty for any time
 """
         CONFIG_PATH.write_text(content, encoding="utf-8")
         print(f"[Config] Created {CONFIG_PATH} — please edit it with your settings")
@@ -172,6 +181,14 @@ class Config:
     email_attach_cv: bool = True
     email_delay_seconds: int = 5
 
+    # ── LinkedIn search filters ──
+    li_exp_level: str = "1"           # 1=Entry, 2=Associate, 3=Mid-Senior, 4=Director, 5=Executive, 6=Internship
+    li_job_types: str = "F,P,I"       # F=Full-time, P=Part-time, I=Internship, C=Contract, T=Temporary, V=Volunteer
+    li_work_types: str = "1"          # 1=On-site, 2=Remote, 3=Hybrid
+    li_geo_id: str = "103291313"      # LinkedIn geo ID (103291313=Hong Kong)
+    li_sort_by: str = "R"             # R=Relevance, DD=Most recent
+    li_posted_within: str = ""        # past_24h, past_week, past_month, or empty for any time
+
     @classmethod
     def load(cls) -> "Config":
         cfg = cls()
@@ -232,6 +249,16 @@ class Config:
             )
             cfg.email_attach_cv = email_cfg.get("attach_cv", True)
             cfg.email_delay_seconds = email_cfg.get("delay_seconds", 5)
+
+        # ── LinkedIn Filters ──
+        li_filters = _yaml_config.get("linkedin_filters", {})
+        if li_filters:
+            cfg.li_exp_level = str(li_filters.get("experience_level", "1"))
+            cfg.li_job_types = str(li_filters.get("job_types", "F,P,I"))
+            cfg.li_work_types = str(li_filters.get("work_types", "1"))
+            cfg.li_geo_id = str(li_filters.get("geo_id", "103291313"))
+            cfg.li_sort_by = str(li_filters.get("sort_by", "R"))
+            cfg.li_posted_within = str(li_filters.get("posted_within", ""))
 
         return cfg
 
