@@ -1071,8 +1071,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
         <!-- Action buttons -->
         <div class="action-row">
           <button class="btn btn-primary btn-sm" onclick="doGenerateCL(this)">📝 Generate CL</button>
-          <button class="btn btn-outline btn-sm" onclick="doEvaluate(this)">🤖 AI Evaluate</button>
-          <button class="btn btn-outline btn-sm" onclick="doFetchDetail(this)">🌐 Fetch Detail</button>
+          <button class="btn btn-outline btn-sm" onclick="doAnalyze(this)">🤖 AI Analyze</button>
           <button class="btn btn-green btn-sm" onclick="doSendEmail(this)">📧 Send Email</button>
         </div>
 
@@ -1623,6 +1622,35 @@ async function doFetchDetail(btn) {
   if (btn) { btn.disabled = false; btn.textContent = "🌐 Fetch Detail"; }
 }
 
+async function doAnalyze(btn) {
+  if (!currentJobId) return toast("Select a job first", "error");
+  const force = (_lastEvalJobId === currentJobId && _lastEvalCached);
+  if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+  // Show loading in evalSection
+  document.getElementById("evalSection").style.display = "block";
+  document.getElementById("evalOverallBadge").textContent = "⏳ Analyzing...";
+  document.getElementById("evalOverallBadge").className = "badge badge-gray";
+  document.getElementById("evalScore").textContent = "";
+  document.getElementById("evalFieldBadges").innerHTML = "";
+  document.getElementById("evalReasons").textContent = "";
+  document.getElementById("evalWarnings").innerHTML = "";
+  try {
+    const res = await fetch(`/api/analyze/${currentJobId}?force=${force}`, { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      _lastEvalJobId = currentJobId;
+      _lastEvalCached = data.cached || false;
+      toast(data.cached ? "📄 Cached — Analyze complete!" : "✅ Analyze complete!", "success");
+      loadJobDetail(currentJobId);
+      refreshJobSelector();
+    } else {
+      toast(data.error || "Failed", "error");
+      document.getElementById("evalSection").style.display = "none";
+    }
+  } catch(e) { toast("Error: " + e.message, "error"); }
+  if (btn) { btn.disabled = false; btn.textContent = "🤖 AI Analyze"; }
+}
+
 async function doSendEmail(btn) {
   if (!currentJobId) return toast("Select a job first", "error");
   if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
@@ -2135,6 +2163,75 @@ async def index():
 @app.get("/favicon.ico")
 async def favicon():
     return Response(status_code=204)
+
+
+@app.post("/api/analyze/{job_id}")
+async def api_analyze(job_id: int, force: bool = False):
+    """Unified: scrape full page → LLM returns all 17 fields at once."""
+    try:
+        jobs = get_all_jobs()
+        job = next((j for j in jobs if j.get("id") == job_id), None)
+        if not job:
+            return JSONResponse({"error": "Job not found"}, status_code=404)
+
+        # Cache: both detail file + cv_match exist
+        detail_path = JOB_DETAILS_DIR / f"{job_id}.json"
+        if not force and job.get("cv_match") and detail_path.exists():
+            try:
+                cached_detail = json.loads(detail_path.read_text(encoding="utf-8"))
+                cached_match = json.loads(job["cv_match"])
+                log.info(f"[Analyze] Job {job_id}: using cached result")
+                return JSONResponse({
+                    "success": True, "cached": True,
+                    "detail": cached_detail, "match": cached_match,
+                })
+            except Exception:
+                pass
+
+        cfg.reload_inplace()
+        cv_profile = await asyncio.to_thread(load_cv_profile, cfg.cv_pdf_path, cfg)
+
+        from fetch_job_detail import analyze_job
+        result = await asyncio.to_thread(analyze_job, cv_profile, job, cfg)
+
+        if "error" in result:
+            return JSONResponse(
+                {"error": result["error"]},
+                status_code=500,
+            )
+
+        # Split 17 fields into detail (7) + match (10)
+        detail_fields = [
+            "summary", "requirements", "application_method",
+            "deadline", "salary", "work_type", "location",
+        ]
+        match_fields = [
+            "overall_match", "skills_match", "education_match",
+            "major_match", "experience_match", "match_score",
+            "reasons", "requires_final_year",
+            "candidate_is_final_year", "requires_experience",
+        ]
+        detail = {k: result.get(k) for k in detail_fields}
+        match = {k: result.get(k) for k in match_fields}
+
+        # Persist
+        detail_path.write_text(
+            json.dumps(detail, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        update_job_cv_match(job_id, json.dumps(match, ensure_ascii=False))
+
+        if result.get("description"):
+            update_job_description(job_id, result["description"])
+
+        return JSONResponse({
+            "success": True, "cached": False,
+            "detail": detail, "match": match,
+        })
+
+    except Exception as e:
+        log.exception("[Analyze] Error")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 if __name__ == "__main__":

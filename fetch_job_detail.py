@@ -392,3 +392,128 @@ def fetch_job_detail(url: str) -> dict:
     structured = _call_llm_extract(text)
     result["structured"] = structured
     return result
+
+
+JOB_ANALYZE_PROMPT = """You are a job posting analyzer and CV evaluator.
+
+Given the CV profile (JSON) and the FULL job posting text (scraped from the URL), extract ALL of the following fields in ONE JSON object.
+
+## CV Profile:
+{cv_profile}
+
+## Job Posting Text:
+{job_text}
+
+Return ONLY a valid JSON object with ALL these keys:
+
+### Detail fields (from job posting):
+- "summary": string — 3-5 bullet points summarizing the role (each bullet on a new line, use \\n)
+- "requirements": array of strings — hard requirements (skills, years, degree), NOT nice-to-haves
+- "application_method": string — How to apply (email / portal link / online form). Include the actual address or URL if found.
+- "deadline": string — Application deadline if mentioned, else empty string
+- "salary": string — Salary/hourly rate if mentioned, else empty string
+- "work_type": string — "internship" / "full-time" / "part-time" / "contract"
+- "location": string — Work location (city, district, remote, hybrid, etc)
+
+### Match fields (compare CV vs job):
+- "overall_match": bool — true if candidate is a good fit overall
+- "skills_match": bool — Does the candidate have the required skills?
+- "education_match": bool — Does the candidate meet the education requirement?
+- "major_match": bool — Does the candidate's major match the job requirement?
+- "experience_match": bool — Does the candidate have enough experience? (false if job requires work experience but candidate has none)
+- "match_score": int — 0-100, how well the candidate matches
+- "reasons": string — Short explanation in Chinese (合格/不合格的理由)
+- "requires_final_year": bool — Does the job require final-year students?
+- "candidate_is_final_year": bool — Set to false if unknown
+- "requires_experience": bool — Does the job require prior work experience (NOT internship)?
+
+Rules:
+- Be concise. summary bullets should be ≤ 20 words each.
+- requirements: extract only hard requirements, not nice-to-haves.
+- application_method: copy the email or URL verbatim if present.
+- match_score: 0-100, be strict.
+- reasons: explain in 1-2 Chinese sentences.
+- Return ONLY the JSON object, no markdown, no explanation.
+"""
+
+
+def analyze_job(cv_profile: dict, job: dict, cfg) -> dict:
+    """
+    Unified analyze: scrape full page -> LLM returns all 17 fields.
+    Returns dict with keys: detail (dict with 7 fields) + match (dict with 10 fields)
+    """
+    url = job.get("url", "")
+    if not url:
+        return {"error": "No URL for this job"}
+
+    # Step 1: fetch full page text
+    log.info(f"[analyze_job] Fetching page: {url}")
+    page_text = _fetch_page_text(url, timeout_ms=20_000)
+
+    if not page_text or len(page_text) < 80:
+        # Fallback: cloudscraper
+        log.info("[analyze_job] Playwright failed, trying cloudscraper...")
+        page_text = _fetch_page_text_cloudscraper(url)
+
+    if not page_text or len(page_text) < 80:
+        return {"error": "Failed to fetch page content"}
+
+    # Step 2: call LLM with full page text + CV
+    if not cfg.llm_api_key:
+        return {"error": "No LLM API key configured"}
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=cfg.llm_api_key, base_url=cfg.llm_base_url or None)
+
+        cv_text = json.dumps(cv_profile, ensure_ascii=False, indent=2)[:3000]
+        job_title = job.get("title", "")
+        job_company = job.get("company", "")
+        # Truncate page_text to avoid token overflow
+        truncated_text = page_text[:10000]
+
+        prompt = JOB_ANALYZE_PROMPT.format(
+            cv_profile=cv_text,
+            job_text=f"Title: {job_title}\nCompany: {job_company}\n\n{truncated_text}"
+        )
+
+        log.info(f"[analyze_job] Calling LLM for job: {job_title}")
+        resp = client.chat.completions.create(
+            model=cfg.llm_model or "deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=2000,
+        )
+
+        content = (resp.choices[0].message.content or "").strip()
+
+        # Strip markdown code blocks
+        if "```" in content:
+            parts = content.split("```")
+            for i in range(1, len(parts), 2):
+                candidate = parts[i].strip()
+                if candidate:
+                    candidate = re.sub(r'^(?:json|JSON)\s*', '', candidate).strip()
+                    if candidate:
+                        content = candidate
+                        break
+            else:
+                content = content.replace("```", "").strip()
+
+        # Extract first {...}
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if json_match:
+            content = json_match.group(0).strip()
+
+        result = json.loads(content)
+        if isinstance(result, dict):
+            log.info(f"[analyze_job] LLM returned {len(result)} fields")
+            return result
+        return {"error": "LLM returned non-dict JSON"}
+
+    except json.JSONDecodeError as e:
+        log.warning(f"[analyze_job] LLM returned invalid JSON: {e} | content={content[:300]}")
+        return {"error": f"LLM JSON parse error: {e}"}
+    except Exception as e:
+        log.exception(f"[analyze_job] LLM call failed: {e}")
+        return {"error": str(e)}
