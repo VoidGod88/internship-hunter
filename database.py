@@ -221,15 +221,15 @@ def get_cover_letter(job_id: int) -> Optional[str]:
     return row["content"] if row else None
 
 
-def record_application(job_id: int, dry_run: bool = False):
+def record_application(job_id: int):
     conn = get_db()
     conn.execute(
-        "INSERT INTO application_history (job_id, dry_run) VALUES (?, ?)",
-        (job_id, 1 if dry_run else 0)
+        "INSERT INTO application_history (job_id) VALUES (?)",
+        (job_id,)
     )
     conn.execute(
         "UPDATE jobs SET status=? WHERE id=?",
-        ("Applied (Dry Run)" if dry_run else "Applied", job_id)
+        ("Applied", job_id)
     )
     conn.commit()
     conn.close()
@@ -241,7 +241,6 @@ def has_been_applied(company: str, title: str) -> bool:
     row = conn.execute(
         """SELECT 1 FROM jobs j
            JOIN application_history ah ON j.id = ah.job_id
-           WHERE j.company LIKE ? AND j.title LIKE ? AND ah.dry_run = 0
            LIMIT 1""",
         (f"%{company}%", f"%{title}%")
     ).fetchone()

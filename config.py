@@ -162,7 +162,6 @@ class Config:
     llm_model: str = "deepseek-chat"
 
     # ── General ──
-    dry_run: bool = True
     max_emails_per_run: int = 10
 
     # ── Keywords ──
@@ -240,7 +239,7 @@ class Config:
 
         # ── From config.yaml (settings) ──
         cfg.cv_pdf_path = _yaml_config.get("cv_pdf_path", "")
-        cfg.dry_run = _yaml_config.get("dry_run", True)
+        # dry_run removed — test email now in Settings
         cfg.max_emails_per_run = _yaml_config.get("max_emails_per_run", 10)
         cfg.search_keywords = _yaml_config.get("search_keywords", [])
 
@@ -328,7 +327,6 @@ class Config:
             "email": self.email,
             "llm_provider": self.llm_provider,
             "llm_model": self.llm_model,
-            "dry_run": self.dry_run,
             "max_emails_per_run": self.max_emails_per_run,
             "search_keywords": ", ".join(self.search_keywords),
             "scraper_polyu": self.scraper_polyu,

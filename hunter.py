@@ -26,7 +26,6 @@ from database import (
     update_job_status,
 )
 import scrapers
-from mailer import send_email
 
 log = logging.getLogger("hunter")
 

@@ -50,7 +50,6 @@ try:
     from ai_writer import generate_cover_letter  # noqa: E402
     from cv_reader import get_cv_keywords, load_cv_profile  # noqa: E402
     from fetch_job_detail import fetch_job_detail  # noqa: E402
-    from mailer import send_email  # noqa: E402
     import database as _db
 except ImportError as e:
     print("=" * 60)
@@ -147,7 +146,6 @@ def _cached_history_df() -> List[dict]:
             "company": h.get("company", ""),
             "title": h.get("title", ""),
             "sent_at": h.get("sent_at", ""),
-            "dry_run": bool(h.get("dry_run", False)),
         })
     _history_cache = result
     return result
@@ -431,13 +429,45 @@ async def api_generate_cl(job_id: int, force: bool = False):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@app.post("/api/send-email/{job_id}")
-async def api_send_email(job_id: int):
+@app.post("/api/test-email")
+async def api_test_email(request: Request):
+    """Send a test email to verify SMTP config works."""
     try:
-        dry = await asyncio.to_thread(send_email, job_id)
-        return JSONResponse({"success": True, "dry_run": dry})
+        body = await request.json()
+        to_email = (body.get("to") or "").strip()
+        if not to_email or "@" not in to_email:
+            return JSONResponse({"error": "Valid recipient email required"}, status_code=400)
+
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+
+        email_addr = config.email or ""
+        email_pw = config.email_password or ""
+        if not email_addr or not email_pw:
+            return JSONResponse({"error": "EMAIL / EMAIL_PASSWORD not configured in .env"}, status_code=400)
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "[Internship Hunter] Test Email"
+        msg["From"] = email_addr
+        msg["To"] = to_email
+
+        body_text = (
+            "This is a test email from Internship Hunter.\n"
+            "If you received this, your Gmail SMTP configuration is working correctly.\n\n"
+            f"Sent from: {email_addr}\n"
+            f"Sent at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
+        msg.attach(MIMEText(body_text, "plain", "utf-8"))
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as s:
+            s.starttls()
+            s.login(email_addr, email_pw)
+            s.sendmail(email_addr, [to_email], msg.as_string())
+
+        return JSONResponse({"success": True, "to": to_email})
     except Exception as e:
-        log.exception("Send email error")
+        log.exception("Test email error")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -1072,7 +1102,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
         <div class="action-row">
           <button class="btn btn-primary btn-sm" onclick="doGenerateCL(this)">📝 Generate CL</button>
           <button class="btn btn-outline btn-sm" onclick="doAnalyze(this)">🤖 AI Analyze</button>
-          <button class="btn btn-green btn-sm" onclick="doSendEmail(this)">📧 Send Email</button>
         </div>
 
         <!-- AI Evaluation (moved above description) -->
@@ -1213,6 +1242,17 @@ select.input-sm { min-width:200px; cursor:pointer; }
           <span class="toggle-password" onclick="togglePw('fld_email_password', this)">👁</span>
         </div>
         <div class="form-hint">Generate at <a href="https://support.google.com/accounts/answer/185833" target="_blank">Google App Passwords</a>. Not your regular password!</div>
+      </div>
+      <hr style="margin:16px 0;border-color:#334155">
+      <div class="form-group">
+        <label>📤 Test Email</label>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <div style="flex:1">
+            <input type="email" id="fld_test_email" placeholder="test_recipient@gmail.com">
+            <div class="form-hint">Sends a fixed test message to verify SMTP works.</div>
+          </div>
+          <button class="btn btn-green" onclick="doTestEmail(this)" style="white-space:nowrap">📤 Send Test</button>
+        </div>
       </div>
     </div>
 
@@ -1808,19 +1848,32 @@ async function doAnalyze(btn) {
   if (btn) { btn.disabled = false; btn.textContent = "🤖 AI Analyze"; }
 }
 
-async function doSendEmail(btn) {
-  if (!currentJobId) return toast("Select a job first", "error");
-  if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+// ── Test Email ──
+async function doTestEmail(btn) {
+  const toEmail = document.getElementById('fld_test_email').value.trim();
+  if (!toEmail || !toEmail.includes('@')) {
+    return toast("Enter a valid recipient email", "error");
+  }
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = "⏳ Sending...";
   try {
-    const res = await fetch(`/api/send-email/${currentJobId}`, { method: "POST" });
+    const res = await fetch("/api/test-email", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({to: toEmail})
+    });
     const data = await res.json();
     if (res.ok) {
-      toast(data.dry_run ? "✅ Email sent (Dry Run)" : "✅ Email sent!", "success");
+      toast("✅ Test email sent to " + toEmail, "success");
     } else {
-      toast(data.error || "Failed", "error");
+      toast("❌ " + (data.error || "Failed to send"), "error");
     }
-  } catch(e) { toast("Error: " + e.message, "error"); }
-  if (btn) { btn.disabled = false; btn.textContent = "📧 Send Email"; }
+  } catch(e) {
+    toast("Error: " + e.message, "error");
+  }
+  btn.disabled = false;
+  btn.textContent = originalText;
 }
 
 // ── CL Edit ──
