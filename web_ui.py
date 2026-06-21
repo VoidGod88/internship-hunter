@@ -2752,6 +2752,7 @@ async def api_analyze(job_id: int, force: bool = False):
         match = {k: result.get(k) for k in match_fields}
 
         # Persist
+        detail_path.parent.mkdir(parents=True, exist_ok=True)
         detail_path.write_text(
             json.dumps(detail, ensure_ascii=False, indent=2),
             encoding="utf-8",
