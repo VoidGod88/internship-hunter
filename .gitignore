@@ -50,3 +50,6 @@ cv.html
 manual_companies.json
 cv_keywords.json
 cv_profile.json
+
+# Debug scripts (local only)
+debug_*.py
