@@ -956,10 +956,10 @@ body { font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-
 .top-bar-slim { display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
 .top-bar-slim select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:var(--card); cursor:pointer; max-width:480px; min-width:160px; width:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-/* Main area: detail panel */
-.main-area { display:flex; gap:12px; flex:1; min-height:0; margin-bottom:12px; }
+/* Main area: detail panel — auto-height, don't stretch to fill screen */
+.main-area { display:flex; gap:12px; margin-bottom:12px; }
 .detail-panel { flex:1; background:var(--card); border-radius:var(--radius); border:1px solid var(--border);
-  padding:16px; overflow-y:auto; display:flex; flex-direction:column; min-height:0; }
+  padding:16px; overflow-y:auto; display:flex; flex-direction:column; min-height:0; max-height:60vh; }
 .detail-panel h2 { font-size:16px; margin-bottom:4px; }
 .detail-meta { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 12px; font-size:13px; color:var(--muted); }
 .detail-section { margin-bottom:14px; }
@@ -2273,6 +2273,10 @@ async function openSettings() {
 }
 
 async function saveSettings() {
+  const msgEl = document.getElementById('settingsMsg');
+  msgEl.textContent = '⏳ Saving...';
+  msgEl.style.color = 'var(--muted)';
+  try {
   // Read form fields and build .env and config.yaml
   const envMap = {};
   // Read existing .env first
@@ -2375,6 +2379,10 @@ async function saveSettings() {
   } else {
     const d = await res.json();
     document.getElementById('settingsMsg').textContent = '❌ ' + (d.error || 'Failed');
+    document.getElementById('settingsMsg').style.color = 'var(--red)';
+  }
+  } catch(e) {
+    document.getElementById('settingsMsg').textContent = '❌ Error: ' + e.message;
     document.getElementById('settingsMsg').style.color = 'var(--red)';
   }
 }
