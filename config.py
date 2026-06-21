@@ -342,6 +342,13 @@ class Config:
 
     def reload_inplace(self):
         """Reload config from .env + config.yaml into THIS instance."""
+        # Re-load .env with override=True so updated values replace cached ones
+        load_dotenv(ENV_PATH, override=True)
+        # Re-load config.yaml
+        global _yaml_config
+        if CONFIG_PATH.exists():
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                _yaml_config = yaml.safe_load(f) or {}
         new = Config.load()
         self.__dict__.update(new.__dict__)
 
