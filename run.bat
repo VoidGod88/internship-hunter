@@ -19,10 +19,10 @@ echo [1/7] Checking port 7861...
 powershell -Command "try { $p = Get-NetTCPConnection -LocalPort 7861 -State Listen -ErrorAction SilentlyContinue; if ($p) { Stop-Process -Id $p.OwningProcess -Force -ErrorAction SilentlyContinue; Write-Host '  Killed existing process on port 7861' } } catch {}"
 
 :: Kill orphaned python processes running web_ui.py / hunter.py
-powershell -Command "Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*web_ui.py*' -or $_.CommandLine -like '*hunter.py*' } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue; Write-Host ('  Killed orphaned python (PID=' + $_.Id + ')') } 2>nul"
+powershell -Command "Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*web_ui.py*' -or $_.CommandLine -like '*hunter.py*' } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue; Write-Host ('  Killed orphaned python (PID=' + $_.Id + ')') }" 2>nul
 
 :: Kill Playwright browser processes (Chromium msedge.exe)
-powershell -Command "Get-Process msedge -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*playwright*' -or $_.CommandLine -like '*chromium*' } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue; Write-Host ('  Killed playwright browser (PID=' + $_.Id + ')') } 2>nul"
+powershell -Command "Get-Process msedge -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*playwright*' -or $_.CommandLine -like '*chromium*' } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue; Write-Host ('  Killed playwright browser (PID=' + $_.Id + ')') }" 2>nul
 
 timeout /t 2 /nobreak >nul 2>&1
 
@@ -111,7 +111,7 @@ echo ========================================
 echo.
 
 :: Use PowerShell to tail log, but exit when stop.flag appears or server process exits
-powershell -NoProfile -Command "& { $lastSize = 0; while ($true) { if (Test-Path 'stop.flag') { Write-Host '[Stop flag detected, exiting...]'; break }; $proc = Get-Process -Id (Get-NetTCPConnection -LocalPort 7861 -State Listen -ErrorAction SilentlyContinue).OwningProcess -ErrorAction SilentlyContinue; if (-not $proc) { Write-Host '[Server stopped, exiting...]'; break }; if (Test-Path 'hunter.log') { $content = Get-Content 'hunter.log' -Tail 30 -Encoding UTF8; $newSize = (Get-Item 'hunter.log').Length; if ($newSize -ne $lastSize) { Clear-Host; Write-Host $content -NoNewline; $lastSize = $newSize } }; Start-Sleep -Milliseconds 500 } }"
+powershell -NoProfile -Command "& { $lastSize = 0; $first = $true; while ($true) { if (Test-Path 'stop.flag') { Write-Host ''; Write-Host '[Stop flag detected, exiting...]'; break }; $proc = Get-Process -Id (Get-NetTCPConnection -LocalPort 7861 -State Listen -ErrorAction SilentlyContinue).OwningProcess -ErrorAction SilentlyContinue; if (-not $proc) { Write-Host ''; Write-Host '[Server stopped, exiting...]'; break }; if (Test-Path 'hunter.log') { $content = Get-Content 'hunter.log' -Tail 30 -Encoding UTF8; $newSize = (Get-Item 'hunter.log').Length; if ($newSize -ne $lastSize) { Clear-Host; Write-Host $content -NoNewline; $lastSize = $newSize } }; Start-Sleep -Milliseconds 500 } }"
 
 echo.
 echo ===== Internship Hunter stopped =====
