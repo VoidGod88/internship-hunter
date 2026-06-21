@@ -289,9 +289,12 @@ def _scrape_keyword(page, kw: str) -> list:
 
         log.info(f"[LinkedIn]   Page {page_num + 1}: {new_on_page} new jobs (total: {len(jobs_for_kw)})")
 
-        # Stop if page returned fewer than 25 cards (last page)
-        if len(cards) < 25:
-            break
+        # Stop conditions (skip on page 0 — virtual list may under-render first load):
+        # - Page 1+ returned < 25 cards (last page)
+        # - Page 1+ had 0 new cards (all duplicates)
+        if page_num > 0:
+            if len(cards) < 25 or new_on_page == 0:
+                break
 
         page_num += 1
 
@@ -300,11 +303,8 @@ def _scrape_keyword(page, kw: str) -> list:
 
 
 def scrape_linkedin(page, keywords: list[str]) -> list:
-    """
-    Scrape LinkedIn HK jobs, one keyword per search, infinite scroll.
-    No page limit — scrolls until LinkedIn stops returning new results.
-    Final dedup by (title, company) across all keywords.
-    """
+    """Scrape LinkedIn HK jobs using URL pagination (start=0, 25, 50...).
+    One keyword per search. Final dedup by (title, company)."""
     jobs: list = []
     log.info(f"[LinkedIn] Searching {len(keywords)} keywords...")
 

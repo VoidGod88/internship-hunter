@@ -10,7 +10,10 @@ timeout /t 2 /nobreak >nul 2>&1
 
 :: ── Step 0.5: Clear __pycache__ (prevent stale .pyc loading) ──
 echo [0.5/6] Clearing Python cache...
-for /d /r . %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d" 2>nul
+:: Delete .pyc alongside .py (Python 3.13 may not use __pycache__)
+for /r . %%f in (*.pyc) do @del /q "%%f" 2>nul
+:: Delete __pycache__ dirs (skip .venv to avoid locked-dir errors)
+for /d /r . %%d in (__pycache__) do @echo "%%d" | findstr /c:".venv" >nul || (if exist "%%d" rd /s /q "%%d" 2>nul)
 echo   Done.
 
 :: ── Step 1: Virtual env ──
