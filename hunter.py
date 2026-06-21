@@ -8,6 +8,7 @@ import sys as _sys
 _os.environ["PYTHONWARNINGS"] = "ignore"
 # Suppress all warnings at Python level (before any imports)
 import warnings
+import shutil
 warnings.filterwarnings("ignore")
 
 import re
@@ -28,6 +29,41 @@ from database import (
 import scrapers
 
 log = logging.getLogger("hunter")
+
+# ─────────────────────────────────────────────
+# Cache cleanup on Stop / Error / Normal exit
+# ─────────────────────────────────────────────
+def _cleanup_cache(status_file=None):
+    """Clear old cache files on Stop. Clears: hunter.log, debug/, status JSON, stop.flag."""
+    from pathlib import Path
+    base = Path(__file__).parent
+    to_delete = [
+        base / "hunter.log",
+        base / "debug",
+    ]
+    if status_file:
+        to_delete.append(Path(status_file))
+    if STOP_FLAG_PATH.exists():
+        to_delete.append(STOP_FLAG_PATH)
+    for item in to_delete:
+        try:
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                import shutil
+                shutil.rmtree(item)
+        except Exception:
+            pass
+
+def _handle_stop(browser, status_file=None):
+    """Close browser, cleanup cache, return empty list."""
+    try:
+        browser.close()
+    except Exception:
+        pass
+    _cleanup_cache(status_file)
+    return []
+
 
 # ─────────────────────────────────────────────
 # WIE Filter & CV Matching
@@ -242,6 +278,7 @@ def parse_extra_docs(text: str) -> str:
 def run_scrapers(
     keywords: Optional[list[str]] = None,
     progress_callback=None,
+    status_file: Optional[str] = None,
 ) -> list[Job]:
     """Run all enabled scrapers and return jobs."""
     if keywords is None:
@@ -271,8 +308,7 @@ def run_scrapers(
             check_stop()
         except InterruptedError:
             log.info('[Stop] Stop requested, exiting...')
-            browser.close()
-            return all_jobs
+            return _handle_stop(browser, status_file)
 
         # ── LinkedIn ──
         if config.scraper_linkedin:
@@ -304,8 +340,7 @@ def run_scrapers(
             check_stop()
         except InterruptedError:
             log.info('[Stop] Stop requested, exiting...')
-            browser.close()
-            return all_jobs
+            return _handle_stop(browser, status_file)
 
         # ── PolyU Job Board ──
         if config.scraper_polyu:
@@ -337,8 +372,7 @@ def run_scrapers(
             check_stop()
         except InterruptedError:
             log.info('[Stop] Stop requested, exiting...')
-            browser.close()
-            return all_jobs
+            return _handle_stop(browser, status_file)
 
         # ── JobsDB ──
         if config.scraper_jobsdb:
@@ -357,8 +391,7 @@ def run_scrapers(
             check_stop()
         except InterruptedError:
             log.info('[Stop] Stop requested, exiting...')
-            browser.close()
-            return all_jobs
+            return _handle_stop(browser, status_file)
 
         # ── Indeed ──
         if config.scraper_indeed:
@@ -377,8 +410,7 @@ def run_scrapers(
             check_stop()
         except InterruptedError:
             log.info('[Stop] Stop requested, exiting...')
-            browser.close()
-            return all_jobs
+            return _handle_stop(browser, status_file)
 
         # ── eFinancialCareers ──
         if config.scraper_efc:
@@ -497,6 +529,7 @@ def process_jobs(jobs: list[Job], progress_callback=None) -> list[Job]:
 def run_full_pipeline(
     keywords: Optional[list[str]] = None,
     progress_callback=None,
+    status_file: Optional[str] = None,
 ) -> dict:
     """Run the scrape + rule-based processing pipeline.
     NO LLM calls. CV matching and cover letter generation are now done
@@ -508,7 +541,7 @@ def run_full_pipeline(
     # Step 1: Scrape
     if progress_callback:
         progress_callback("Phase 1/2: Scraping jobs...")
-    raw_jobs = run_scrapers(keywords, progress_callback)
+    raw_jobs = run_scrapers(keywords, progress_callback, status_file)
 
     # Step 2: Process (rule-based WIE filter, no LLM)
     if progress_callback:
@@ -644,6 +677,7 @@ def main():
         summary = run_full_pipeline(
             keywords=keywords,
             progress_callback=progress_cb,
+            status_file=status_file,
         )
 
         _write_status(status_file, {
@@ -668,6 +702,7 @@ def main():
             "phase": "error",
             "message": str(e),
         })
+        _cleanup_cache(status_file)
         sys.exit(1)
 
 

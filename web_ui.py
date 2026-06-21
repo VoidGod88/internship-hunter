@@ -1212,7 +1212,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
     <div class="control-group">
       <button class="btn btn-green" id="btnRun" onclick="runPipeline()">▶ Run</button>
       <button class="btn btn-red" id="btnStop" style="display:none" onclick="stopPipeline()">⏹ Stop</button>
-      <button class="btn btn-orange" id="btnRestart" onclick="restartPipeline()" title="Stop + clear data + re-run">🔄 Restart</button>
     </div>
     <div class="control-group">
       <button class="btn btn-outline" onclick="generateKeywords(this)" title="Generate keywords from CV">🪄 CV Keywords</button>
@@ -2075,48 +2074,6 @@ async function stopPipeline() {
   toast("Stopping pipeline...", "success");
 }
 
-async function restartPipeline() {
-  const btn = document.getElementById("btnRestart");
-  if (btn) { btn.disabled = true; btn.textContent = "🔄 Restarting..."; }
-  toast("Restarting: stopping current run + clearing data...", "success");
-
-  // Clear log display immediately
-  logBuffer = "";
-  const logBox = document.getElementById("logBox");
-  if (logBox) logBox.textContent = "";
-
-  try {
-    // Stop if running
-    await fetch("/api/stop", { method: "POST" }).catch(()=>{});
-    // Wait a moment for stop to complete
-    await new Promise(r => setTimeout(r, 1000));
-    // Start fresh run
-    const fd = new FormData();
-    fd.set("keywords", document.getElementById("keywordsInput").value);
-    fd.set("fresh", "true");
-    fd.set("scraper_polyu", document.getElementById("scraperPolyu")?.checked ?? true);
-    fd.set("scraper_linkedin", document.getElementById("scraperLinkedin").checked);
-    fd.set("scraper_jobsdb", document.getElementById("scraperJobsdb").checked);
-    fd.set("scraper_indeed", document.getElementById("scraperIndeed").checked);
-    fd.set("scraper_efc", document.getElementById("scraperEfc").checked);
-    fd.set("scraper_manual", document.getElementById("scraperManual").checked);
-    const res = await fetch("/api/run", { method: "POST", body: fd });
-    if (res.ok) {
-      const data = await res.json();
-      toast("Fresh run started! PID=" + (data.pid||"?"), "success");
-      document.getElementById("btnRun").style.display = "none";
-      document.getElementById("btnStop").style.display = "";
-      document.getElementById("btnRestart").style.display = "none";
-    } else {
-      const data = await res.json().catch(()=>({}));
-      toast("Error: " + (data.error||"Failed"), "error");
-    }
-  } catch(e) {
-    toast("Error: " + e.message, "error");
-  }
-  if (btn) { btn.disabled = false; btn.textContent = "🔄 Restart"; }
-}
-
 async function generateKeywords(btn) {
   // Check if CV is available first
   const res0 = await fetch("/api/config");
@@ -2232,7 +2189,6 @@ function updateStatusUI(status, running, progressHtml) {
   hdr.textContent = status.message || (running ? "Running..." : "Idle");
   document.getElementById("btnRun").style.display = running ? "none" : "";
   document.getElementById("btnStop").style.display = running ? "" : "none";
-  document.getElementById("btnRestart").style.display = running ? "none" : "";
   if (progressHtml) {
     const fill = document.getElementById("progressFill");
     const match = progressHtml.match(/width:(\d+)%/);
