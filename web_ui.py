@@ -1370,11 +1370,11 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <div class="form-row">
         <div class="form-group">
           <label>Experience Level (multi-select)</label>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:4px">
-            <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="1" id="fld_li_exp_1"> Entry</label>
-            <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="2" id="fld_li_exp_2"> Associate</label>
-            <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="3" id="fld_li_exp_3"> Mid-Senior</label>
-            <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="6" id="fld_li_exp_6"> Internship</label>
+          <div style="display:flex;gap:8px;flex-wrap:nowrap;padding-top:4px">
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="1" id="fld_li_exp_1"> Entry</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="2" id="fld_li_exp_2"> Associate</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="3" id="fld_li_exp_3"> Mid-Senior</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="6" id="fld_li_exp_6"> Internship</label>
           </div>
           <div class="form-hint">Leave all unchecked = no filter (shows all levels)</div>
         </div>
@@ -1388,19 +1388,19 @@ select.input-sm { min-width:200px; cursor:pointer; }
       </div>
       <div class="form-group">
         <label>Job Types</label>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:4px">
-          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="F" id="fld_li_jt_F"> Full-time</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="P" id="fld_li_jt_P"> Part-time</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="I" id="fld_li_jt_I"> Internship</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="C" id="fld_li_jt_C"> Contract</label>
+        <div style="display:flex;gap:10px;flex-wrap:nowrap;padding-top:4px">
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="F" id="fld_li_jt_F"> Full-time</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="P" id="fld_li_jt_P"> Part-time</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="I" id="fld_li_jt_I"> Internship</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="C" id="fld_li_jt_C"> Contract</label>
         </div>
       </div>
       <div class="form-group">
         <label>Work Type (multi-select)</label>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:4px">
-          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="1" id="fld_li_wt_1"> On-site</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="2" id="fld_li_wt_2"> Remote</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="3" id="fld_li_wt_3"> Hybrid</label>
+        <div style="display:flex;gap:10px;flex-wrap:nowrap;padding-top:4px">
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="1" id="fld_li_wt_1"> On-site</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="2" id="fld_li_wt_2"> Remote</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="3" id="fld_li_wt_3"> Hybrid</label>
         </div>
       </div>
       <div class="form-row">
