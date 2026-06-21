@@ -1,6 +1,6 @@
 """
 scrapers/linkedin.py — LinkedIn HK job scraper using Playwright.
-Uses URL pagination (start=0, 25, 50...) — confirmed working (no duplicates).
+Uses proven pagination logic (feed login → &start=N → scroll_into_view → URL dedup).
 """
 
 import time
@@ -9,156 +9,134 @@ import logging
 from pathlib import Path
 
 from .base import BaseScraper
-from config import check_stop
+from config import check_stop, config
 
 log = logging.getLogger("hunter")
 
-# ── Dynamic card selector (detected at runtime) ──
-# Try these selectors in order, use the first one that matches
-# Based on LinkedIn diagnostic (2026-06-22): Working selectors:
-#   - li[data-occludable-job-id] → 25 cards (confirmed via debug script)
-#   - div[data-job-id] → 8 cards
-#   - .job-card-container → 8 cards
-# Non-working (2026+ LinkedIn no longer uses data-entity-urn):
-#   - div.base-search-card[data-entity-urn] → 0 cards
-_CANDIDATE_SELECTORS = [
-    "li[data-occludable-job-id]",  # Confirmed working (2026-06-22)
-    "div[data-job-id]",  # Fallback
-    ".job-card-container",  # Fallback
-]
-_working_selector = None  # Will be detected at runtime
-
-def _detect_selector(page) -> str:
-    """Detect the correct job card selector for the current LinkedIn page.
-    Retries up to 3 times (2s apart) — LinkedIn SPA may not have rendered
-    job cards immediately after the container appears."""
-    for attempt in range(3):
-        for sel in _CANDIDATE_SELECTORS:
-            try:
-                count = page.locator(sel).count()
-                if count > 0:
-                    log.info(f"[LinkedIn]   Detected job card selector: '{sel}' ({count} cards)")
-                    return sel
-            except Exception:
-                continue
-        if attempt < 2:
-            log.info(f"[LinkedIn]   No cards yet, retrying ({attempt+2}/3)...")
-            page.wait_for_timeout(2000)
-    log.warning("[LinkedIn]   No job card selector detected after 3 retries, using fallback")
-    return _CANDIDATE_SELECTORS[0]  # fallback
+# Fixed selector (confirmed working 2026-06-22)
+_SELECTOR = "li[data-occludable-job-id]"
 
 
-def _extract_card_data(page) -> list[dict]:
-    """Pull (title, company, url) tuples for every visible job card."""
-    global _working_selector
-    if not _working_selector:
-        _working_selector = _detect_selector(page)
-    
-    results = []
-    cards = page.query_selector_all(_working_selector)
-    
-    for idx, card in enumerate(cards):
+def _check_session(page) -> bool:
+    """Verify LinkedIn session is valid. If not, warn and return False."""
+    try:
+        current = page.url
+        if "login" in current.lower():
+            log.warning("[LinkedIn]   Not logged in! Cookies may be expired.")
+            log.warning("[LinkedIn]   Please run: python linkedin_login.py")
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def _check_no_results(page) -> bool:
+    """Detect 'no results' page (recommendation cards only, not real search results)."""
+    try:
+        body_text = page.inner_text("body")
+        for msg in ["没有符合条件的职位", "No results found", "沒有符合條件的職位"]:
+            if msg in body_text:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _extract_cards(page, seen_ids: set) -> list[dict]:
+    """Extract job data from all cards on current page.
+    Scrolls each card into view first (LinkedIn virtual list).
+    Uses job URL as primary unique key.
+    """
+    cards = page.query_selector_all(_SELECTOR)
+    new_jobs = []
+
+    for card in cards:
         try:
-            # Get job ID from data-entity-urn (new structure) or fallback to old attributes
-            job_id = ""
-            
-            # New LinkedIn structure: data-entity-urn="urn:li:jobPosting:XXXX"
-            entity_urn = card.get_attribute("data-entity-urn")
-            if entity_urn and "jobPosting:" in entity_urn:
-                job_id = entity_urn.split("jobPosting:")[-1]
-            
-            # Fallback to old attributes
-            if not job_id:
-                job_id = (
-                    card.get_attribute("data-occludable-job-id") or
-                    card.get_attribute("data-job-id") or
-                    card.get_attribute("id") or
-                    str(idx)
-                )
-            
-            # Extract title — try multiple selectors for old & new LinkedIn structures
+            # Scroll card into view (required for virtual list rendering)
+            try:
+                card.scroll_into_view_if_needed(timeout=2000)
+                time.sleep(0.15)
+            except Exception:
+                pass
+
+            # ── Unique ID ──
+            # Primary: job URL (most reliable)
+            job_url = ""
+            link = card.query_selector("a[href*='/jobs/view/']")
+            if link:
+                href = link.get_attribute("href") or ""
+                if href.startswith("/"):
+                    href = "https://www.linkedin.com" + href
+                job_url = href.split("?")[0]  # remove ?eBP=...
+
+            # Secondary: data-occludable-job-id
+            raw_id = card.get_attribute("data-occludable-job-id")
+
+            if job_url:
+                unique_key = f"url:{job_url}"
+            elif raw_id:
+                unique_key = f"id:{raw_id}"
+            else:
+                unique_key = f"idx:{len(seen_ids)}"
+
+            if unique_key in seen_ids:
+                continue
+
+            # ── Title (3-strategy fallback) ──
             title = ""
-            title_selectors = [
-                "a[href*='/jobs/view/']",  # New structure: title is a link
-                ".base-search-card__title a",   # Old structure
-                "h3 a",                        # Old structure fallback
-                ".job-card-list__title a",      # Alternative new structure
-                "[class*='title'] a",           # Generic
-                "h3",                           # Bare h3
-                "[class*='title']",             # Generic title class
-            ]
-            for sel in title_selectors:
+            for sel in [".base-search-card__title a", "h3 a", "h3"]:
                 el = card.query_selector(sel)
                 if el:
                     text = el.inner_text().strip()
                     if text and len(text) > 2:
                         title = text
                         break
-            
-            # Extract company — try multiple selectors
+            if not title:
+                links = card.query_selector_all("a")
+                for link in links:
+                    text = link.inner_text().strip()
+                    if text and 5 < len(text) < 200:
+                        title = text
+                        break
+            if not title:
+                full_text = card.inner_text().strip()
+                lines = [l.strip() for l in full_text.split('\n') if l.strip()]
+                if lines:
+                    title = lines[0][:100]
+
+            # ── Company ──
             company = ""
-            company_selectors = [
-                "[class*='company']",           # Generic company class
-                ".base-search-card__subtitle",   # Old structure
-                "h4",                           # Old structure fallback
-                ".job-card-container span[class*='subtitle']",  # New structure
-                "span[class*='company']",       # Generic
-            ]
-            for sel in company_selectors:
+            for sel in ["[class*='company']", ".base-search-card__subtitle", "h4"]:
                 el = card.query_selector(sel)
                 if el:
                     text = el.inner_text().strip()
-                    if text and len(text) > 0:
+                    if text:
                         company = text
                         break
-            
-            # Extract URL — find the job link
-            href = ""
-            url_selectors = [
-                "a[href*='/jobs/view/']",      # Job detail page
-                "a[href*='/jobs/']",            # Any job link
-                "a[href*='linkedin.com/jobs']", # Full URL
-            ]
-            for sel in url_selectors:
-                el = card.query_selector(sel)
-                if el:
-                    link = el.get_attribute("href")
-                    if link:
-                        href = link
-                        break
-            
-            if title and len(title) > 2:
-                results.append({
-                    "id": job_id,
-                    "title": title,
-                    "company": company,
-                    "href": href
-                })
+
+            if not title:
+                title = f"[No title - ID: {unique_key[:30]}]"
+
+            new_jobs.append({
+                "id": unique_key,
+                "title": title,
+                "company": company,
+                "url": job_url,
+            })
+            seen_ids.add(unique_key)
+
         except Exception as e:
-            log.debug(f"[LinkedIn]   Error extracting card: {e}")
+            log.debug(f"[LinkedIn]   Card extract error: {e}")
             continue
-    
-    return results
+
+    return new_jobs
 
 
 def _scrape_keyword(page, kw: str) -> list:
-    """Scrape a single keyword using URL pagination (start=0, 25, 50...).
-    
-    Strategy:
-    1. Build base URL with filters
-    2. Loop: add &start=N, load page, extract cards
-    3. Stop when a page returns 0 new jobs (or < 25 jobs, indicating last page)
-    4. Max 10 pages (250 jobs) safety cap
-    """
+    """Scrape a single keyword using URL pagination (&start=0,25,50...)."""
     import urllib.parse
-    from config import config
-    
-    # Reset selector detection for each keyword
-    global _working_selector
-    _working_selector = None
-    
+
     encoded_kw = urllib.parse.quote(kw)
-    # LinkedIn search with filters from config (customizable via Settings UI)
     params = []
     if config.li_exp_level:
         params.append(f"f_E={config.li_exp_level}")
@@ -177,144 +155,115 @@ def _scrape_keyword(page, kw: str) -> list:
     params.append("origin=JOB_SEARCH_PAGE_JOB_FILTER")
     params.append("spellCorrectionEnabled=true")
     base_url = "https://www.linkedin.com/jobs/search/?" + "&".join(params)
-    
-    log.info(f"[LinkedIn] Searching: {kw} | URL: {base_url}")
-    
+
+    log.info(f"[LinkedIn] Searching: {kw}")
+
     jobs_for_kw = []
     seen_ids = set()
-    start = 0
+    page_num = 0
     page_size = 25
-    max_pages = 10  # Safety cap: 10 pages = 250 jobs max per keyword
+    max_pages = 10
     empty_pages = 0
-    max_empty_pages = 2  # Stop after 2 consecutive empty pages
-    
-    for page_num in range(max_pages):
+
+    while page_num < max_pages and empty_pages < 2:
         try:
             check_stop()
         except InterruptedError:
             break
-        
-        # Build paginated URL
-        if start > 0:
-            url = base_url + f"&start={start}"
-        else:
-            url = base_url
-        
-        log.debug(f"[LinkedIn]   Page {page_num+1}: {url[-80:]}")
-        
+
+        start = page_num * page_size
+        url = base_url + f"&start={start}" if start > 0 else base_url
+
+        log.debug(f"[LinkedIn]   Page {page_num+1}: &start={start}")
+
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        except Exception as e:
-            log.warning(f"[LinkedIn]   goto failed: {e}")
-            break
-        
-        # Check if redirected to login
-        actual_url = page.url
-        if "/login" in actual_url or "/checkpoint" in actual_url:
-            log.warning(f"[LinkedIn]   Redirected to login! Cookies may be expired.")
-            log.warning(f"[LinkedIn]   Please run: python linkedin_login.py")
-            # Save debug HTML
-            debug_dir = Path(__file__).parent.parent / "debug"
-            debug_dir.mkdir(exist_ok=True)
-            html_path = debug_dir / f"linkedin_redirect_{kw.replace(' ', '_')}.html"
-            try:
-                html_path.write_text(page.content(), encoding="utf-8")
-            except Exception:
-                pass
-            break
-        
-        # Wait for job cards to render
-        try:
-            wait_selectors = ", ".join([
-                "div.base-search-card[data-entity-urn]",
-                "[data-entity-urn*='jobPosting:']",
-            ])
-            page.wait_for_selector(wait_selectors, timeout=15_000, state="attached")
-            log.debug(f"[LinkedIn]   Page {page_num+1} loaded (cards found)")
-        except Exception:
-            # Check if genuinely 0 results
-            no_results_el = page.query_selector('[class*="no-results"], [class*="zero-results"], [class*="empty-state"]')
-            if no_results_el:
-                log.info(f"[LinkedIn]   Page {page_num+1}: 0 results (no matching jobs)")
-                empty_pages += 1
-                if empty_pages >= max_empty_pages:
+            page.goto(url, timeout=30000)
+            time.sleep(2)
+
+            # Scroll to trigger lazy loading
+            for _ in range(5):
+                page.keyboard.press("End")
+                page.evaluate("window.scrollBy(0, 800)")
+                time.sleep(0.8)
+
+            # Wait for cards to appear
+            deadline = time.time() + 8
+            while page.locator(_SELECTOR).count() < 10 and time.time() < deadline:
+                time.sleep(0.5)
+            page.evaluate("window.scrollBy(0, 500)")
+            time.sleep(1)
+
+            cards = page.query_selector_all(_SELECTOR)
+            count = len(cards)
+
+            # Check "no results" on first page
+            if page_num == 0:
+                if _check_no_results(page):
+                    log.info(f"[LinkedIn]   '{kw}': no matching jobs (recommendations only), skipping")
                     break
-                start += page_size
-                continue
-            else:
-                # Maybe slow network — wait a bit more
-                page.wait_for_timeout(3000)
-        
-        # Detect selector (first page only)
-        if _working_selector is None:
-            _working_selector = _detect_selector(page)
-        
-        # Extract cards
-        cards = _extract_card_data(page)
-        
-        # Filter new jobs
-        new_count = 0
-        for card in cards:
-            if card["id"] in seen_ids:
-                continue
-            seen_ids.add(card["id"])
-            href = card["href"] or ""
-            job_url = (
-                href if href.startswith("http")
-                else f"https://www.linkedin.com{href}" if href
-                else ""
-            )
-            if card["title"] and len(card["title"]) > 3:
-                jobs_for_kw.append(BaseScraper.make_job(
-                    card["title"], card["company"], "Hong Kong", job_url, "LinkedIn"
-                ))
-                new_count += 1
-        
-        log.info(f"[LinkedIn]   Page {page_num+1}: {new_count} new jobs (total: {len(jobs_for_kw)})")
-        
-        # Stop conditions
-        if new_count == 0:
-            empty_pages += 1
-            if empty_pages >= max_empty_pages:
-                log.info(f"[LinkedIn]   No more results after {page_num+1} pages")
+
+            log.debug(f"[LinkedIn]   Page {page_num+1}: {count} cards")
+
+            # Extract jobs
+            new_jobs = _extract_cards(page, seen_ids)
+            jobs_for_kw.extend(new_jobs)
+            log.info(f"[LinkedIn]   Page {page_num+1}: +{len(new_jobs)} new (total: {len(jobs_for_kw)})")
+
+            # Stop conditions
+            if count > 0 and count < page_size:
+                log.info(f"[LinkedIn]   Last page ({count} < {page_size}), stopping")
                 break
-        else:
-            empty_pages = 0  # Reset on successful page
-            
-        # If this page returned < page_size jobs, it's likely the last page
-        if len(cards) < page_size:
-            log.info(f"[LinkedIn]   Last page reached ({len(cards)} < {page_size} cards)")
-            break
-        
-        # Next page
-        start += page_size
-        
-        # Human-like delay between pages
-        time.sleep(random.uniform(1.5, 3.0))
-    
+            if count == 0:
+                empty_pages += 1
+                log.info(f"[LinkedIn]   Empty page (consecutive: {empty_pages})")
+                if empty_pages >= 2:
+                    break
+                page_num += 1
+                continue
+
+            empty_pages = 0
+            page_num += 1
+
+            # Human-like delay
+            time.sleep(random.uniform(1.5, 3.0))
+
+        except Exception as e:
+            log.warning(f"[LinkedIn]   Page {page_num+1} error: {e}")
+            empty_pages += 1
+            page_num += 1
+
     log.info(f"[LinkedIn] Searching: {kw} → {len(jobs_for_kw)} jobs")
     return jobs_for_kw
 
 
 def scrape_linkedin(page, keywords: list[str]) -> list:
-    """Scrape LinkedIn HK jobs using URL pagination (start=0, 25, 50...).
-    One keyword per search. Final dedup by (title, company)."""
+    """Scrape LinkedIn HK jobs. One browser session for all keywords."""
     jobs: list = []
     log.info(f"[LinkedIn] Searching {len(keywords)} keywords...")
-    
+
+    # Verify session
+    if not _check_session(page):
+        log.error("[LinkedIn] Cannot scrape: not logged in")
+        return []
+
     for kw in keywords:
         try:
             kw_jobs = _scrape_keyword(page, kw)
         except Exception as e:
             log.error(f"[LinkedIn]   Error scraping '{kw}': {e}")
             kw_jobs = []
-        jobs.extend(kw_jobs)
+
+        # Convert to Job namedtuple
+        for j in kw_jobs:
+            jobs.append(BaseScraper.make_job(
+                j["title"], j["company"], "Hong Kong", j["url"], "LinkedIn"
+            ))
+
         if kw_jobs:
-            log.info(f"[LinkedIn]   {kw}: {len(kw_jobs)} jobs (sample: {kw_jobs[0].title[:40]})")
-        
-        # Human-like delay between keywords
+            log.info(f"[LinkedIn]   {kw}: {len(kw_jobs)} jobs")
+
         time.sleep(random.uniform(2, 4))
-    
+
     # Final cross-keyword dedup
     seen: set = set()
     unique: list = []
@@ -323,6 +272,6 @@ def scrape_linkedin(page, keywords: list[str]) -> list:
         if key not in seen and j.title.strip():
             seen.add(key)
             unique.append(j)
-    
+
     log.info(f"[LinkedIn] Total: {len(unique)} jobs")
     return unique
