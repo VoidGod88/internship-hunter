@@ -5,282 +5,376 @@
 <title>Yip Fung Ming — CV</title>
 <style>
   :root {
-    --text: #1a1a1a;
-    --muted: #4a4a4a;
+    --text: #1a1a2e;
+    --muted: #4b5563;
     --accent: #2563eb;
-    --divider: #e5e5e5;
+    --divider: #e2e8f0;
     --bg: #ffffff;
+    --highlight: #eff6ff;
   }
-
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     font-size: 10pt;
-    line-height: 1.45;
+    line-height: 1.5;
     color: var(--text);
-    background: #f0f0f0;
+    background: #e0e0e0;
     display: flex;
     justify-content: center;
-    padding: 16px;
+    padding: 10px;
   }
 
   .page {
     width: 210mm;
     min-height: 297mm;
     background: var(--bg);
-    padding: 16mm 18mm 14mm 18mm;
-    box-shadow: 0 2px 12px rgba(0,0,0,.12);
+    padding: 13mm 14mm 13mm 14mm;
+    box-shadow: 0 2px 16px rgba(0,0,0,.1);
   }
 
-  /* ── Print ── */
   @media print {
     body { background: white; padding: 0; }
     .page {
       box-shadow: none;
-      width: 100%;
-      min-height: auto;
-      padding: 14mm 16mm 10mm 16mm;
-      page-break-after: avoid;
+      width: 210mm;
+      min-height: 297mm;
+      padding: 12mm 13mm 11mm 13mm;
     }
-    @page {
-      size: A4;
-      margin: 0;
-    }
+    @page { size: A4; margin: 0; }
   }
 
   /* ── Header ── */
-  .header { margin-bottom: 8pt; }
+  .header {
+    text-align: center;
+    margin-bottom: 12pt;
+    padding-bottom: 10pt;
+    border-bottom: 2.5px solid var(--accent);
+  }
   .name {
-    font-size: 19pt;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    line-height: 1;
-    margin-bottom: 2pt;
+    font-size: 22pt;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: var(--text);
+    margin-bottom: 4pt;
   }
   .subtitle {
-    font-size: 9.5pt;
-    color: var(--muted);
+    font-size: 10pt;
+    color: var(--accent);
+    font-weight: 500;
     margin-bottom: 6pt;
   }
   .contact-row {
     display: flex;
+    justify-content: center;
     flex-wrap: wrap;
-    gap: 4pt 14pt;
+    gap: 6pt 16pt;
     font-size: 9pt;
     color: var(--muted);
   }
   .contact-row a { color: var(--accent); text-decoration: none; }
-  .contact-row a:hover { text-decoration: underline; }
+  .sep { color: var(--divider); user-select: none; }
 
   /* ── Sections ── */
-  .section { margin-bottom: 7pt; }
+  .section { margin-bottom: 10pt; }
   .section-title {
-    font-size: 10pt;
+    font-size: 11pt;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 1.2px;
+    letter-spacing: 1.5px;
     color: var(--accent);
-    border-bottom: 1.2px solid var(--divider);
-    padding-bottom: 2pt;
-    margin-bottom: 5pt;
+    border-bottom: 1.5px solid var(--divider);
+    padding-bottom: 3pt;
+    margin-bottom: 6pt;
   }
 
   /* ── Profile ── */
-  .profile-text { font-size: 9.5pt; color: var(--text); line-height: 1.5; }
+  .profile-text {
+    font-size: 9.5pt;
+    line-height: 1.55;
+    text-align: justify;
+    color: var(--text);
+  }
 
   /* ── Education ── */
-  .entry { margin-bottom: 5pt; }
-  .entry-header {
+  .edu-block { margin-bottom: 7pt; }
+  .edu-block:last-child { margin-bottom: 0; }
+  .edu-header, .edu-sub, .edu-detail { display: block; }
+
+  .edu-header {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    margin-bottom: 1pt;
   }
-  .entry-title { font-weight: 600; font-size: 10.5pt; }
-  .entry-date  { font-size: 9pt; color: var(--muted); white-space: nowrap; }
-  .entry-sub   { font-size: 9.5pt; color: var(--muted); margin-bottom: 2pt; }
-  .entry-detail { font-size: 9pt; color: var(--muted); line-height: 1.45; }
-
-  /* ── Projects ── */
-  .project { margin-bottom: 6pt; }
-  .project h4 {
+  .edu-school {
+    font-weight: 700;
     font-size: 10.5pt;
-    font-weight: 600;
-    margin-bottom: 1pt;
-  }
-  .project h4 a {
     color: var(--text);
-    text-decoration: none;
-    border-bottom: 1px dotted var(--accent);
   }
-  .project h4 a:hover { color: var(--accent); }
-  .project-meta {
-    font-size: 8.5pt;
+  .edu-date {
+    font-size: 9pt;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .edu-sub {
+    font-size: 9.5pt;
     color: var(--muted);
     margin-bottom: 2pt;
   }
-  .project ul {
-    list-style: none;
-    padding-left: 0;
+  .edu-sub .tag {
+    display: inline-block;
+    background: var(--highlight);
+    color: var(--accent);
+    font-size: 8.5pt;
+    font-weight: 600;
+    padding: 1pt 5pt;
+    border-radius: 3px;
+    margin-left: 4pt;
   }
-  .project li {
+  .edu-detail {
     font-size: 9pt;
-    line-height: 1.5;
-    padding-left: 10pt;
-    position: relative;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  /* ── Projects ── */
+  .project { margin-bottom: 8pt; }
+  .project:last-child { margin-bottom: 0; }
+  .proj-title {
+    font-weight: 700;
+    font-size: 10.5pt;
+    color: var(--text);
     margin-bottom: 1pt;
   }
-  .project li::before {
-    content: "▸";
-    position: absolute;
-    left: 0;
-    color: var(--accent);
-    font-size: 7pt;
-    top: 1pt;
+  .proj-title a {
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1.5px solid rgba(37,99,235,.3);
   }
-  .project-tags {
+  .proj-title a:hover { color: var(--accent); }
+  .proj-link {
+    font-size: 8pt;
+    color: var(--accent);
+    font-weight: 400;
+    margin-left: 6pt;
+  }
+  .proj-meta {
     font-size: 8.5pt;
     color: var(--muted);
-    margin-top: 2pt;
     font-style: italic;
+    margin-bottom: 3pt;
+  }
+  .proj-body {
+    display: flex;
+    gap: 6pt;
+  }
+  .proj-dot {
+    color: var(--accent);
+    font-size: 8pt;
+    line-height: 1.55;
+    white-space: pre;
+  }
+  .proj-text {
+    font-size: 9pt;
+    line-height: 1.55;
+    color: var(--text);
+    flex: 1;
+  }
+  .proj-tags {
+    font-size: 8pt;
+    color: var(--muted);
+    margin-top: 3pt;
+    padding-left: 12pt;
   }
 
   /* ── Skills ── */
   .skills-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 2pt 16pt;
+    gap: 4pt 24pt;
     font-size: 9pt;
+    line-height: 1.55;
+  }
+  .skills-grid .cat {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .skills-grid .items {
+    color: var(--muted);
+  }
+  .skills-line {
+    margin-top: 4pt;
+    font-size: 9pt;
+  }
+  .skills-line .cat {
+    font-weight: 600;
+    color: var(--text);
+    margin-right: 4pt;
+  }
+  .skills-line .items {
+    color: var(--muted);
+  }
+
+  /* ── Awards ── */
+  .award-block {
+    display: flex;
+    align-items: flex-start;
+    gap: 8pt;
+    font-size: 9.5pt;
     line-height: 1.5;
   }
-  .skills-grid strong { color: var(--text); }
+  .award-icon {
+    font-size: 14pt;
+    line-height: 1;
+  }
+  .award-text .small {
+    font-size: 8.5pt;
+    color: var(--muted);
+  }
 
   /* ── Footer ── */
   .footer {
-    margin-top: 6pt;
-    font-size: 8.5pt;
-    color: var(--muted);
+    margin-top: 12pt;
+    padding-top: 6pt;
     border-top: 1px solid var(--divider);
-    padding-top: 3pt;
+    text-align: center;
+    font-size: 9pt;
+    color: var(--muted);
   }
-
-  /* ── Inline icon replacement ── */
-  .icon-label { color: var(--muted); font-size: 8.5pt; margin-right: 2pt; }
 </style>
 </head>
 <body>
 <div class="page">
 
-  <!-- ═══ HEADER ═══ -->
   <div class="header">
     <div class="name">Yip Fung Ming</div>
-    <div class="subtitle">Seeking Summer Internship (Non-final Year) · AI Engineering · Vibe Coding</div>
+    <div class="subtitle">Seeking Summer Internship · AI Engineering · Vibe Coding</div>
     <div class="contact-row">
       <span>📞 5169-3118</span>
+      <span class="sep">|</span>
       <span>✉ yipfm88@gmail.com</span>
+      <span class="sep">|</span>
       <span>🐙 <a href="https://github.com/VoidGod88">github.com/VoidGod88</a></span>
+      <span class="sep">|</span>
       <span>📍 Hong Kong</span>
     </div>
   </div>
 
-  <!-- ═══ PROFILE ═══ -->
+  <!-- PROFILE -->
   <div class="section">
     <div class="section-title">Profile</div>
     <div class="profile-text">
-      CS student at PolyU (senior standing, admitted from HKCC with GPA 3.69 / Dean's List) with a strong focus on applied AI and autonomous agent systems. Shipped production-grade AI tools — including a multi-agent teaching assistant with a live sandboxed Python executor — using modern LLM stacks. Fluent in vibe coding: translating ideas into working software rapidly with Claude Code, Codex, and Cursor. Seeking a summer internship in AI engineering, LLM applications, or AI product development. Non-final year student (senior standing at PolyU), eligible for WIE (312 hrs).
+      CS student at PolyU (senior standing, admitted from HKCC with GPA 3.69 / Dean's List) with a strong focus on applied AI and autonomous agent systems. Shipped production-grade AI tools — including a multi-agent teaching assistant with a live sandboxed Python executor — using modern LLM stacks. Fluent in vibe coding: translating ideas into working software rapidly with Claude Code, Codex, and Cursor. Seeking a summer internship in AI engineering, LLM applications, or AI product development.
     </div>
   </div>
 
-  <!-- ═══ EDUCATION ═══ -->
+  <!-- EDUCATION -->
   <div class="section">
     <div class="section-title">Education</div>
 
-    <div class="entry">
-      <div class="entry-header">
-        <span class="entry-title">The Hong Kong Polytechnic University (PolyU)</span>
-        <span class="entry-date">Sep 2025 – Present</span>
+    <div class="edu-block">
+      <div class="edu-header">
+        <span class="edu-school">The Hong Kong Polytechnic University (PolyU)</span>
+        <span class="edu-date">Sep 2025 – Present</span>
       </div>
-      <div class="entry-sub">BSc (Hons) Computer Science · Year 3 (Non-final Year) · GPA 3.03</div>
-      <div class="entry-detail">Relevant courses: Computer System Security (A) · Artificial Intelligence (B) · Machine Learning (B−)</div>
+      <div class="edu-sub">
+        BSc (Hons) Computer Science · Year 3 (Non-final Year) <span class="tag">GPA 3.03</span>
+      </div>
+      <div class="edu-detail">Computer System Security (A) · Artificial Intelligence (B) · Machine Learning (B−)</div>
     </div>
 
-    <div class="entry">
-      <div class="entry-header">
-        <span class="entry-title">Hong Kong Community College (HKCC)</span>
-        <span class="entry-date">Aug 2025</span>
+    <div class="edu-block">
+      <div class="edu-header">
+        <span class="edu-school">Hong Kong Community College (HKCC)</span>
+        <span class="edu-date">Sep 2023 – Aug 2025</span>
       </div>
-      <div class="entry-sub">Associate in Information Technology · GPA 3.69 · 🏆 Dean's List (Sem 2, 2023/24)</div>
-      <div class="entry-detail">Relevant courses: Data Structures (A+) · Computer Networking (A+) · Introduction to AI &amp; Machine Learning (A−) · Completed with distinction, admitted to PolyU with advanced standing</div>
+      <div class="edu-sub">
+        Associate in Information Technology <span class="tag">GPA 3.69 · Dean's List</span>
+      </div>
+      <div class="edu-detail">Data Structures (A+) · Computer Networking (A+) · Intro to AI &amp; ML (A−) · Completed with distinction, admitted to PolyU with advanced standing</div>
     </div>
   </div>
 
-  <!-- ═══ FEATURED PROJECTS ═══ -->
+  <!-- PROJECTS -->
   <div class="section">
     <div class="section-title">Featured Projects</div>
 
-    <!-- Project 1: Internship Hunter -->
     <div class="project">
-      <h4><a href="https://github.com/VoidGod88/internship-hunter">Internship Hunter</a> — Multi-Platform Job Scraper &amp; AI Application Assistant</h4>
-      <div class="project-meta">Solo build · Playwright + FastAPI + LLM · Jun 2026</div>
-      <ul>
-        <li>Built a multi-platform web scraper covering 5 job boards (LinkedIn, PolyU, JobsDB, Indeed, eFinancialCareers) with Playwright stealth automation and cookie-based authentication.</li>
-        <li>Designed a FastAPI web dashboard with live job browser, faceted filtering (WIE eligibility, location, domain), and one-click AI analysis for each posting.</li>
-        <li>Integrated an LLM pipeline to auto-evaluate job fit against CV and generate tailored cover letters using structured JD extraction and prompt engineering.</li>
-        <li>SQLite-backed application tracking with Fresh Run / Resume modes for full rescrape vs. incremental updates.</li>
-      </ul>
-      <div class="project-tags">Playwright · FastAPI · Python · SQLite · LLM · Prompt Engineering · Browser Automation · REST APIs</div>
+      <div class="proj-title">
+        <a href="https://github.com/VoidGod88/internship-hunter">Internship Hunter</a>
+        <span class="proj-link">github.com/VoidGod88/internship-hunter</span>
+      </div>
+      <div class="proj-meta">Multi-Platform Job Scraper &amp; AI Application Assistant · Solo build · Jun 2026</div>
+      <div class="proj-body">
+        <div class="proj-dot">▸<br>▸<br>▸<br>▸</div>
+        <div class="proj-text">
+          Built multi-platform scraper covering 5 job boards (LinkedIn, PolyU, JobsDB, Indeed, eFinancialCareers) with Playwright stealth automation and cookie-based authentication.<br>
+          Designed FastAPI web dashboard with live job browser, faceted filtering (WIE eligibility, location, domain), and one-click AI analysis for each posting.<br>
+          Integrated LLM pipeline to auto-evaluate job fit against CV and generate tailored cover letters using structured JD extraction and prompt engineering.<br>
+          SQLite-backed application tracking with Fresh Run / Resume modes for full rescrape versus incremental updates.
+        </div>
+      </div>
+      <div class="proj-tags">Playwright · FastAPI · Python · SQLite · LLM · Prompt Engineering · Browser Automation · REST APIs</div>
     </div>
 
-    <!-- Project 2: AI Professor -->
     <div class="project">
-      <h4><a href="https://github.com/VoidGod88/code-executor">AI Professor</a> — Autonomous Teaching Assistant</h4>
-      <div class="project-meta">Solo build · Coze platform + custom infrastructure · Jan 2026 – Apr 2026</div>
-      <ul>
-        <li>Designed a multi-agent orchestration system on Coze that delivers lectures, auto-generates quizzes, provides personalised feedback, and grades responses using LLM-based rubrics.</li>
-        <li>Built and deployed a Docker-sandboxed Python executor (FastAPI + Docker, hosted on Railway) to let students run live code inside the agent — zero unsafe host access.</li>
-        <li>Implemented long-term memory to track individual student progress across sessions, and automated syllabus generation with structured output parsing.</li>
-      </ul>
-      <div class="project-tags">Multi-Agent LLM Orchestration · Coze · FastAPI · Docker · Railway (Cloud) · Prompt Engineering</div>
+      <div class="proj-title">
+        <a href="https://github.com/VoidGod88/code-executor">AI Professor</a>
+        <span class="proj-link">github.com/VoidGod88/code-executor</span>
+      </div>
+      <div class="proj-meta">Autonomous Teaching Assistant · Solo build · Jan 2026 – Apr 2026</div>
+      <div class="proj-body">
+        <div class="proj-dot">▸<br>▸<br>▸</div>
+        <div class="proj-text">
+          Designed multi-agent orchestration system on Coze that delivers lectures, auto-generates quizzes, provides personalised feedback, and grades responses using LLM-based rubrics.<br>
+          Built and deployed a Docker-sandboxed Python executor (FastAPI + Railway) for live student code execution — zero unsafe host access.<br>
+          Implemented long-term memory to track individual student progress across sessions, and automated syllabus generation with structured output parsing.
+        </div>
+      </div>
+      <div class="proj-tags">Multi-Agent LLM Orchestration · Coze · FastAPI · Docker · Railway · Prompt Engineering</div>
     </div>
 
-    <!-- Project 3: Don't Overfit II -->
     <div class="project">
-      <h4>Don't Overfit II — Kaggle ML Competition</h4>
-      <div class="project-meta">Individual · Supervised learning on high-dimensional sparse data · Sep 2025 – Nov 2025</div>
-      <ul>
-        <li>Trained a classification model on a 20,000 × 200 feature matrix with only 250 labelled samples — a classic overfitting challenge.</li>
-        <li>Applied data augmentation (Gaussian noise, SMOTE-style oversampling) and rigorous cross-validation strategies to achieve a competition score of 0.860.</li>
-      </ul>
-      <div class="project-tags">Python · scikit-learn · Feature Engineering · Kaggle · Score 0.860</div>
+      <div class="proj-title">Don't Overfit II — Kaggle ML Competition</div>
+      <div class="proj-meta">Supervised Learning on High-Dimensional Sparse Data · Individual · Sep 2025 – Nov 2025</div>
+      <div class="proj-body">
+        <div class="proj-dot">▸<br>▸</div>
+        <div class="proj-text">
+          Trained a classification model on a 20,000 × 200 feature matrix with only 250 labelled samples — a classic overfitting challenge.<br>
+          Applied data augmentation (Gaussian noise, SMOTE-style oversampling) and rigorous cross-validation strategies to achieve a competition score of 0.860.
+        </div>
+      </div>
+      <div class="proj-tags">Python · scikit-learn · Feature Engineering · Kaggle · Score 0.860</div>
     </div>
   </div>
 
-  <!-- ═══ SKILLS ═══ -->
+  <!-- SKILLS -->
   <div class="section">
     <div class="section-title">Skills</div>
     <div class="skills-grid">
-      <div><strong>AI / LLM Tooling</strong>: Claude Code · Codex · Cursor · Trae · Coze · Prompt Engineering · Multi-agent Design</div>
-      <div><strong>AI / ML</strong>: Python (ML) · scikit-learn · Data Augmentation · Stable Diffusion · ComfyUI</div>
-      <div><strong>Backend &amp; DevOps</strong>: FastAPI · Docker · Railway · REST APIs · Git / GitHub</div>
-      <div><strong>Programming</strong>: Python (advanced) · C++ (intermediate) · Java (intermediate)</div>
+      <div><span class="cat">AI / LLM Tooling:</span> <span class="items">Claude Code · Codex · Cursor · Trae · Coze · Prompt Engineering · Multi-agent Design</span></div>
+      <div><span class="cat">AI / ML:</span> <span class="items">Python (ML) · scikit-learn · Data Augmentation · Stable Diffusion · ComfyUI</span></div>
+      <div><span class="cat">Backend &amp; DevOps:</span> <span class="items">FastAPI · Docker · Railway · REST APIs · Git / GitHub</span></div>
+      <div><span class="cat">Programming:</span> <span class="items">Python (advanced) · C++ (intermediate) · Java (intermediate)</span></div>
     </div>
-    <div style="font-size:9pt; line-height:1.5; margin-top:2pt;">
-      <strong>Languages</strong>: Cantonese (native) · Mandarin (fluent) · English (proficient)
-    </div>
+    <div class="skills-line"><span class="cat">Languages:</span> <span class="items">Cantonese (native) · Mandarin (fluent) · English (proficient)</span></div>
   </div>
 
-  <!-- ═══ AWARDS ═══ -->
+  <!-- AWARDS -->
   <div class="section" style="margin-bottom:0;">
     <div class="section-title">Awards &amp; Recognition</div>
-    <div class="profile-text" style="font-size:9pt;">
-      🏆 Dean's List — HKCC Associate in IT, Semester 2, 2023/24
+    <div class="award-block">
+      <span class="award-icon">🏆</span>
+      <span class="award-text">
+        Dean's List
+        <br><span class="small">HKCC Associate in Information Technology · Semester 2, 2023/24</span>
+      </span>
     </div>
   </div>
 
-  <!-- ═══ FOOTER ═══ -->
+  <!-- FOOTER -->
   <div class="footer">
-    Available for Summer 2026 internship (WIE eligible, 312 hrs) · Hong Kong resident
+    Available for Summer 2026 · Hong Kong Resident
   </div>
 
 </div>
