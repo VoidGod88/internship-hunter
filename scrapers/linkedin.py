@@ -26,9 +26,18 @@ _CANDIDATE_SELECTORS = [
 _working_selector = None  # Will be detected at runtime
 
 # ── Tunable scroll behaviour ──
-SCROLL_PAUSE_MS = 1500          # wait between scrolls (LinkedIn needs time to lazy-load)
+SCROLL_PAUSE_MS = 2500          # wait between scrolls (LinkedIn needs time to lazy-load)
 SCROLL_MAX_NO_NEW = 4           # stop after N consecutive scrolls that add 0 new cards
 SCROLL_MAX_ROUNDS = 200         # hard cap so a misbehaving page can't loop forever
+
+# LinkedIn job results scroll container selectors (scroll THIS, not the whole page)
+_RESULTS_CONTAINER_SELECTORS = [
+    ".scaffold-layout__list-container",
+    "[class*='jobs-search-results-list']",
+    "[class*='jobs-search__results-list']",
+    "ul:has(li[data-occludable-job-id])",
+    "div:has(> [data-occludable-job-id])",
+]
 
 
 def _detect_selector(page) -> str:
@@ -129,14 +138,37 @@ def _extract_card_data(page) -> list[dict]:
     return results
 
 
-def _scroll_to_bottom(page) -> int:
-    """Scroll the results pane to the bottom (human-like), then return the new card count."""
-    global _working_selector
-    # Use human-like scroll (gradual, not instant)
-    from stealth import Stealth
-    Stealth.human_scroll(page, scroll_pixels=800)
-    page.wait_for_timeout(SCROLL_PAUSE_MS)
-    return _count_cards(page)
+def _scroll_results_panel(page) -> None:
+    """Scroll LinkedIn's job results panel (not the whole page).
+    Uses evaluate to scroll the specific container that holds job cards."""
+    # Try each known results container selector
+    for sel in _RESULTS_CONTAINER_SELECTORS:
+        try:
+            el = page.query_selector(sel)
+            if el:
+                el.evaluate("el => el.scrollTop = el.scrollHeight")
+                return
+        except Exception:
+            continue
+    # Fallback: scroll inside the first card's grandparent
+    try:
+        card = page.query_selector("[data-occludable-job-id], .base-search-card")
+        if card:
+            card.evaluate("""el => {
+                let p = el.parentElement;
+                for (let i = 0; i < 5 && p; i++) {
+                    if (p.scrollHeight > p.clientHeight + 10) {
+                        p.scrollTop = p.scrollHeight;
+                        return;
+                    }
+                    p = p.parentElement;
+                }
+            }""")
+            return
+    except Exception:
+        pass
+    # Last resort: scroll whole page
+    page.evaluate("() => window.scrollBy(0, 800)")
 
 
 def _scrape_keyword(page, kw: str) -> list:
@@ -189,29 +221,56 @@ def _scrape_keyword(page, kw: str) -> list:
         return []
 
     # Wait for job card elements to render (not just the container skeleton)
+    # Track whether LinkedIn returned 0 results (vs. a detection failure)
+    legit_zero_results = False
     try:
         # Prefer waiting for actual job cards — LinkedIn SPA may show
-        # the shell ([class*='jobs-search']) before cards are injected
+        # the shell ([class*='jobs-search']) before cards are injected.
+        # Use state="attached" because cards may be off-screen in a virtual list.
         wait_selectors = ", ".join([
             "li[data-occludable-job-id]",
             "[data-occludable-job-id]",
             "li.base-search-card",
             ".base-search-card",
         ])
-        page.wait_for_selector(wait_selectors, timeout=15_000)
+        page.wait_for_selector(wait_selectors, timeout=15_000, state="attached")
         log.info(f"[LinkedIn]   Page loaded (job cards found)")
         
         # Detect the correct selector (with retry)
         _working_selector = _detect_selector(page)
     except Exception:
-        log.info(f"[LinkedIn]   No job cards found within 15s, trying generic container...")
-        try:
-            page.wait_for_selector("[class*='jobs-search'], [class*='results']", timeout=5_000)
-            log.info(f"[LinkedIn]   Generic container found, retrying card detection...")
-            page.wait_for_timeout(3000)
-            _working_selector = _detect_selector(page)
-        except Exception:
-            log.info(f"[LinkedIn]   No results container found")
+        # Check if page genuinely has 0 results (vs. detection failure)
+        no_results_el = page.query_selector('[class*="no-results"], [class*="zero-results"], [class*="empty-state"]')
+        result_count_text = page.evaluate("""() => {
+            const el = document.querySelector('[class*="results-context"], [class*="jobs-search-results-count"], .results-context-header__job-count, h2');
+            return el ? el.textContent.trim() : '';
+        }""")
+        if no_results_el or "0" in result_count_text:
+            log.info(f"[LinkedIn]   0 results for '{kw}' (no matching jobs)")
+            legit_zero_results = True
+        else:
+            log.info(f"[LinkedIn]   No job cards found within 15s, trying generic container...")
+            try:
+                page.wait_for_selector("[class*='jobs-search'], [class*='results']", timeout=5_000, state="attached")
+                log.info(f"[LinkedIn]   Generic container found, retrying card detection...")
+                page.wait_for_timeout(3000)
+                _working_selector = _detect_selector(page)
+            except Exception:
+                log.info(f"[LinkedIn]   No results container found")
+                # Save debug HTML for unknown failure
+                debug_dir = Path(__file__).parent.parent / "debug"
+                debug_dir.mkdir(exist_ok=True)
+                html_path = debug_dir / f"linkedin_debug_{kw.replace(' ', '_')}.html"
+                try:
+                    html_path.write_text(page.content(), encoding="utf-8")
+                    log.info(f"[LinkedIn]   Debug HTML saved: {html_path.name}")
+                except Exception:
+                    pass
+
+    # If LinkedIn returned 0 results, skip scrolling
+    if legit_zero_results:
+        log.info(f"[LinkedIn] Searching: {kw} → 0 jobs")
+        return []
 
     # Infinite scroll to load all jobs
     jobs_for_kw: list = []
@@ -223,15 +282,15 @@ def _scrape_keyword(page, kw: str) -> list:
     while scroll_round < SCROLL_MAX_ROUNDS:
         scroll_round += 1
 
-        # Scroll down to trigger lazy-load
-        from stealth import Stealth
-        Stealth.human_scroll(page, scroll_pixels=800)
+        # Scroll the job results panel to load more cards
+        _scroll_results_panel(page)
         page.wait_for_timeout(SCROLL_PAUSE_MS)
 
         # Extract cards after scroll
         cards = _extract_card_data(page)
         if not cards and scroll_round == 1:
-            # Save debug HTML if no cards found on first scroll
+            # Unknown failure (not a legit 0-result page) — save debug HTML
+            log.info(f"[LinkedIn]   No job cards found for '{kw}'")
             debug_dir = Path(__file__).parent.parent / "debug"
             debug_dir.mkdir(exist_ok=True)
             html_path = debug_dir / f"linkedin_debug_{kw.replace(' ', '_')}.html"
@@ -240,7 +299,6 @@ def _scrape_keyword(page, kw: str) -> list:
                 log.info(f"[LinkedIn]   Debug HTML saved: {html_path.name}")
             except Exception:
                 pass
-            log.info(f"[LinkedIn]   No job cards found for '{kw}'")
             break
 
         # Check stop flag
