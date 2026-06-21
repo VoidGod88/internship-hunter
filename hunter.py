@@ -648,6 +648,12 @@ def main():
             logging.FileHandler("hunter.log", encoding="utf-8"),
         ],
     )
+    # Force line buffering + ensure handler terminator is \n
+    import sys
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+    for h in logging.root.handlers:
+        h.terminator = "\n"
 
     log.info("=" * 60)
     log.info("WIE Internship Hunter v4 (subprocess mode — scrape + filter only)")
