@@ -57,83 +57,14 @@ LLM_MODEL=deepseek-chat
     # config.yaml
     yaml_example = BASE_DIR / "config.yaml.example"
     if not CONFIG_PATH.exists():
-        print("[Config] config.yaml not found, creating default...")
         if yaml_example.exists():
-            content = yaml_example.read_text(encoding="utf-8")
+            print(f"[Config] config.yaml not found, copying from {yaml_example}...")
+            import shutil
+            shutil.copy(str(yaml_example), str(CONFIG_PATH))
         else:
-            content = """# Path to your CV PDF (used for keyword extraction and CV matching)
-cv_pdf_path: path/to/your/cv.pdf
-
-# Search keywords for job scraping
-search_keywords:
-  - summer internship 2026 computer science
-  - software engineer intern summer 2026
-
-# Scraper toggles (set to false to disable)
-scrapers:
-  linkedin: true
-  jobsdb: true
-  indeed: true
-  efinancialcareers: true
-  manual_companies: true
-  polyu: true
-
-# WIE filter settings (PolyU-specific)
-wie_filter:
-  enabled: true
-  require_hk_location: true
-  exclude_non_cs: true
-  exclude_final_year_required: true
-
-# CV matching settings
-cv_matching:
-  enabled: true
-  match_education: true
-  match_skills: true
-  match_final_year: true
-
-# Cover letter generation
-cover_letter:
-  enabled: true
-  language: en
-
-# Email settings
-email_settings:
-  subject_template: Application for {job_title} – Summer Internship
-  attach_cv: true
-  delay_seconds: 5
-
-# LinkedIn search filters (customizable via Settings UI)
-linkedin_filters:
-  experience_level: "1"       # 1=Entry, 2=Associate, 3=Mid-Senior, 4=Director, 5=Executive, 6=Internship
-  job_types: "F,P,I"         # F=Full-time, P=Part-time, I=Internship, C=Contract, T=Temporary, V=Volunteer
-  work_types: "1"            # 1=On-site, 2=Remote, 3=Hybrid
-  geo_id: "103291313"        # LinkedIn geo ID (103291313=Hong Kong)
-  sort_by: "R"               # R=Relevance, DD=Most recent
-  posted_within: ""           # past_24h, past_week, past_month, or empty for any time
-
-# JobsDB search filters
-jobsdb_filters:
-  category: "information-communication-technology"  # URL slug: jobs-in-{category}
-  work_type: "on-site"                              # on-site, remote, hybrid
-  daterange: "7"                                    # 1, 3, 7, 14, 30, or empty
-
-# Indeed search filters
-indeed_filters:
-  date_range: "7"             # fromage=7 (past 7 days), 14, 30, or empty
-  job_type: ""                # internship, fulltime, parttime, contract, or empty
-  sort_by: "date"             # date, relevance
-  radius: "50"                # km radius from Hong Kong
-
-# eFinancialCareers search filters
-efc_filters:
-  experience_level: "NO_EXPERIENCE"   # NO_EXPERIENCE, ENTRY_LEVEL, MID_SENIOR, etc.
-  posted_within: ""                    # 1, 7, 14, 30, or empty
-  page_size: "15"                      # results per page (max 50)
-  sort_by: ""                          # date, relevance, or empty
-"""
-        CONFIG_PATH.write_text(content, encoding="utf-8")
-        print(f"[Config] Created {CONFIG_PATH} — please edit it with your settings")
+            print("[Config] ERROR: config.yaml.example not found!")
+            print("[Config] Please create config.yaml manually or restore config.yaml.example from git.")
+            sys.exit(1)
 
 
 _ensure_config_files()
