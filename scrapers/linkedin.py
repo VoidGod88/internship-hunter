@@ -138,19 +138,30 @@ def _scrape_keyword(page, kw: str) -> list:
 
     encoded_kw = urllib.parse.quote(kw)
     params = []
-    if config.li_exp_level:
-        params.append(f"f_E={config.li_exp_level}")
-    if config.li_job_types:
-        encoded_jt = urllib.parse.quote(config.li_job_types)
+    
+    # Experience Level: list → comma-separated (e.g., [1,2,6] → "1,2,6")
+    if config.li_exp_level and len(config.li_exp_level) > 0:
+        exp_str = ",".join(str(v) for v in config.li_exp_level)
+        params.append(f"f_E={exp_str}")
+    
+    # Job Types: list → comma-separated (e.g., ["F","P","I"] → "F,P,I")
+    if config.li_job_types and len(config.li_job_types) > 0:
+        jt_str = ",".join(str(v) for v in config.li_job_types)
+        encoded_jt = urllib.parse.quote(jt_str)
         params.append(f"f_JT={encoded_jt}")
-    if config.li_work_types:
-        params.append(f"f_WT={config.li_work_types}")
+    
+    # Work Types: list → comma-separated (e.g., [1,2] → "1,2")
+    if config.li_work_types and len(config.li_work_types) > 0:
+        wt_str = ",".join(str(v) for v in config.li_work_types)
+        params.append(f"f_WT={wt_str}")
+    
     if config.li_geo_id:
         params.append(f"geoId={config.li_geo_id}")
     if config.li_sort_by:
         params.append(f"sortBy={config.li_sort_by}")
     if config.li_posted_within:
         params.append(f"f_TPR={config.li_posted_within}")
+    
     params.append(f"keywords={encoded_kw}")
     params.append("origin=JOB_SEARCH_PAGE_JOB_FILTER")
     params.append("spellCorrectionEnabled=true")

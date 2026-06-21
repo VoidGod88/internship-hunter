@@ -132,9 +132,9 @@ class Config:
     email_delay_seconds: int = 5
 
     # ── LinkedIn search filters ──
-    li_exp_level: str = ""           # 1=Entry, 2=Associate, 3=Mid-Senior, 4=Director, 5=Executive, 6=Internship; empty=no filter
-    li_job_types: str = "F,P,I"       # F=Full-time, P=Part-time, I=Internship, C=Contract, T=Temporary, V=Volunteer
-    li_work_types: str = "1"          # 1=On-site, 2=Remote, 3=Hybrid
+    li_exp_level: list = field(default_factory=list)   # [1,2,6] etc. Empty=no filter
+    li_job_types: list = field(default_factory=lambda: ["F","P","I"])  # [F,P,I] etc.
+    li_work_types: list = field(default_factory=lambda: ["1"])  # [1,2,3] etc.
     li_geo_id: str = "103291313"      # LinkedIn geo ID (103291313=Hong Kong)
     li_sort_by: str = "R"             # R=Relevance, DD=Most recent
     li_posted_within: str = ""        # past_24h, past_week, past_month, or empty for any time
@@ -220,9 +220,27 @@ class Config:
         # ── LinkedIn Filters ──
         li_filters = _yaml_config.get("linkedin_filters", {})
         if li_filters:
-            cfg.li_exp_level = str(li_filters.get("experience_level", ""))
-            cfg.li_job_types = str(li_filters.get("job_types", "F,P,I"))
-            cfg.li_work_types = str(li_filters.get("work_types", "1"))
+            # experience_level: support both old string and new list format
+            exp = li_filters.get("experience_level", [])
+            if isinstance(exp, str):
+                cfg.li_exp_level = [x.strip() for x in exp.split(",") if x.strip()] if exp else []
+            else:
+                cfg.li_exp_level = list(exp) if exp else []
+            
+            # job_types: support both old comma-string and new list format
+            jt = li_filters.get("job_types", ["F","P","I"])
+            if isinstance(jt, str):
+                cfg.li_job_types = [x.strip() for x in jt.split(",") if x.strip()] if jt else []
+            else:
+                cfg.li_job_types = list(jt) if jt else []
+            
+            # work_types: support both old comma-string and new list format
+            wt = li_filters.get("work_types", ["1"])
+            if isinstance(wt, str):
+                cfg.li_work_types = [x.strip() for x in wt.split(",") if x.strip()] if wt else []
+            else:
+                cfg.li_work_types = list(wt) if wt else []
+            
             cfg.li_geo_id = str(li_filters.get("geo_id", "103291313"))
             cfg.li_sort_by = str(li_filters.get("sort_by", "R"))
             cfg.li_posted_within = str(li_filters.get("posted_within", ""))

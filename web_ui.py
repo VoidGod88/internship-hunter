@@ -853,7 +853,12 @@ async def api_get_config():
         config_warnings.append("LLM API key not configured")
     if not cfg.cv_pdf_path or "path/to" in cfg.cv_pdf_path or (cfg.cv_pdf_path and not os.path.exists(cfg.cv_pdf_path)):
         config_warnings.append("CV PDF not found — please upload or set cv_pdf_path")
-    return JSONResponse({"env": env_text, "config_yaml": yaml_text, "warnings": config_warnings})
+    return JSONResponse({
+        "env": env_text,
+        "config_yaml": yaml_text,
+        "parsed_config": _yaml_config,
+        "warnings": config_warnings
+    })
 
 
 @app.post("/api/clear-log")
@@ -1364,16 +1369,14 @@ select.input-sm { min-width:200px; cursor:pointer; }
     <div class="settings-panel" id="settingsPanel-linkedin">
       <div class="form-row">
         <div class="form-group">
-          <label>Experience Level</label>
-          <select id="fld_li_exp_level">
-            <option value="">No Filter</option>
-            <option value="1">Entry Level</option>
-            <option value="2">Associate</option>
-            <option value="3">Mid-Senior</option>
-            <option value="4">Director</option>
-            <option value="5">Executive</option>
-            <option value="6">Internship</option>
-          </select>
+          <label>Experience Level (multi-select)</label>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:4px">
+            <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="1" id="fld_li_exp_1"> Entry</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="2" id="fld_li_exp_2"> Associate</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="3" id="fld_li_exp_3"> Mid-Senior</label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="6" id="fld_li_exp_6"> Internship</label>
+          </div>
+          <div class="form-hint">Leave all unchecked = no filter (shows all levels)</div>
         </div>
         <div class="form-group">
           <label>Sort By</label>
@@ -1393,12 +1396,12 @@ select.input-sm { min-width:200px; cursor:pointer; }
         </div>
       </div>
       <div class="form-group">
-        <label>Work Type</label>
-        <select id="fld_li_work_types">
-          <option value="1">On-site</option>
-          <option value="2">Remote</option>
-          <option value="3">Hybrid</option>
-        </select>
+        <label>Work Type (multi-select)</label>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:4px">
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="1" id="fld_li_wt_1"> On-site</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="2" id="fld_li_wt_2"> Remote</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer"><input type="checkbox" value="3" id="fld_li_wt_3"> Hybrid</label>
+        </div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -2310,22 +2313,70 @@ async function openSettings() {
     document.getElementById('envEditor').value = d.env || '';
     document.getElementById('yamlEditor').value = d.config_yaml || '';
 
-    // Parse linkedin_filters from YAML
-    const yamlText = d.config_yaml || '';
-    const liSection = yamlText.match(/^linkedin_filters:[\s\S]*?(?=\n\S|\n*$)/m);
-    if (liSection) {
-      const liYaml = liSection[0];
-      const getLi = (key, def) => { const m = liYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
-      document.getElementById('fld_li_exp_level').value = getLi('experience_level', '');
-      document.getElementById('fld_li_sort_by').value = getLi('sort_by', 'R');
-      document.getElementById('fld_li_work_types').value = getLi('work_types', '1');
-      document.getElementById('fld_li_geo_id').value = getLi('geo_id', '103291313');
-      document.getElementById('fld_li_posted_within').value = getLi('posted_within', '');
-      // Job types checkboxes
-      const jt = getLi('job_types', 'F,P,I');
-      ['F','P','I','C'].forEach(v => {
-        document.getElementById('fld_li_jt_' + v).checked = jt.split(',').some(s => s.trim() === v);
+    // Parse linkedin_filters from parsed_config (list format support)
+    if (d.parsed_config && d.parsed_config.linkedin_filters) {
+      const li = d.parsed_config.linkedin_filters;
+      
+      // Experience Level: check checkboxes
+      const expLevels = Array.isArray(li.experience_level) ? li.experience_level : [];
+      ['1','2','3','6'].forEach(v => {
+        const cb = document.getElementById('fld_li_exp_' + v);
+        if (cb) cb.checked = expLevels.includes(v) || expLevels.includes(parseInt(v));
       });
+      
+      // Job Types: check checkboxes
+      const jobTypes = Array.isArray(li.job_types) ? li.job_types : [];
+      ['F','P','I','C'].forEach(v => {
+        const cb = document.getElementById('fld_li_jt_' + v);
+        if (cb) cb.checked = jobTypes.includes(v);
+      });
+      
+      // Work Types: check checkboxes
+      const workTypes = Array.isArray(li.work_types) ? li.work_types : [];
+      ['1','2','3'].forEach(v => {
+        const cb = document.getElementById('fld_li_wt_' + v);
+        if (cb) cb.checked = workTypes.includes(v) || workTypes.includes(parseInt(v));
+      });
+      
+      // Single-value fields
+      document.getElementById('fld_li_geo_id').value = (li.geo_id || '103291313').toString();
+      document.getElementById('fld_li_sort_by').value = li.sort_by || 'R';
+      document.getElementById('fld_li_posted_within').value = li.posted_within || '';
+    } else {
+      // Fallback: parse from YAML text (backward compatible)
+      const yamlText = d.config_yaml || '';
+      const liSection = yamlText.match(/^linkedin_filters:[\s\S]*?(?=\n\S|\n*$)/m);
+      if (liSection) {
+        const liYaml = liSection[0];
+        const getLi = (key, def) => { const m = liYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
+        
+        // Experience Level (legacy string format)
+        const exp = getLi('experience_level', '');
+        if (exp) {
+          exp.split(',').forEach(v => {
+            const cb = document.getElementById('fld_li_exp_' + v.trim());
+            if (cb) cb.checked = true;
+          });
+        }
+        
+        // Job Types
+        const jt = getLi('job_types', 'F,P,I');
+        ['F','P','I','C'].forEach(v => {
+          const cb = document.getElementById('fld_li_jt_' + v);
+          if (cb) cb.checked = jt.split(',').some(s => s.trim() === v);
+        });
+        
+        // Work Types (legacy string format)
+        const wt = getLi('work_types', '1');
+        wt.split(',').forEach(v => {
+          const cb = document.getElementById('fld_li_wt_' + v.trim());
+          if (cb) cb.checked = true;
+        });
+        
+        document.getElementById('fld_li_geo_id').value = getLi('geo_id', '103291313');
+        document.getElementById('fld_li_sort_by').value = getLi('sort_by', 'R');
+        document.getElementById('fld_li_posted_within').value = getLi('posted_within', '');
+      }
     }
 
     // Parse JobsDB filters from YAML
@@ -2377,11 +2428,22 @@ async function saveSettings() {
     if (cvPath) settings['cv_pdf_path'] = cvPath;
 
     // linkedin_filters
-    const liJobTypes = ['F','P','I','C'].filter(v => document.getElementById('fld_li_jt_' + v).checked).join(',');
+    const liExpLevels = ['1','2','3','6'].filter(v => {
+      const cb = document.getElementById('fld_li_exp_' + v);
+      return cb && cb.checked;
+    });
+    const liJobTypes = ['F','P','I','C'].filter(v => {
+      const cb = document.getElementById('fld_li_jt_' + v);
+      return cb && cb.checked;
+    });
+    const liWorkTypes = ['1','2','3'].filter(v => {
+      const cb = document.getElementById('fld_li_wt_' + v);
+      return cb && cb.checked;
+    });
     settings['linkedin_filters'] = {
-      'experience_level': document.getElementById('fld_li_exp_level').value,
-      'job_types': liJobTypes,
-      'work_types': document.getElementById('fld_li_work_types').value,
+      'experience_level': liExpLevels,
+      'job_types': liJobTypes.length > 0 ? liJobTypes : ['F','P','I'],
+      'work_types': liWorkTypes.length > 0 ? liWorkTypes : ['1'],
       'geo_id': document.getElementById('fld_li_geo_id').value.trim() || '103291313',
       'sort_by': document.getElementById('fld_li_sort_by').value,
       'posted_within': document.getElementById('fld_li_posted_within').value,

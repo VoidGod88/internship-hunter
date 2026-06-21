@@ -29,12 +29,12 @@ email_settings:
   attach_cv: true
   delay_seconds: 5
 linkedin_filters:
-  experience_level: ''
-  job_types: F,P,I
-  work_types: '1'
-  geo_id: '103291313'
-  sort_by: R
-  posted_within: ''
+  experience_level: []           # Multi-select: 1=Entry, 2=Associate, 3=Mid-Senior, 4=Director, 5=Executive, 6=Internship
+  job_types: ["F","P","I"]      # Multi-select: F=Full-time, P=Part-time, I=Internship, C=Contract, T=Temporary, V=Volunteer
+  work_types: ["1"]              # Multi-select: 1=On-site, 2=Remote, 3=Hybrid
+  geo_id: '103291313'           # Single: LinkedIn geo ID (103291313=Hong Kong)
+  sort_by: 'R'                  # Single: R=Relevance, DD=Most recent
+  posted_within: ''              # Single: past_24h, past_week, past_month, or empty
 jobsdb_filters:
   category: information-communication-technology
   work_type: on-site
