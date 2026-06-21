@@ -1,7 +1,7 @@
 """
 scrapers/linkedin.py — LinkedIn HK job scraper using Playwright.
-Supports: one keyword per search, infinite scroll pagination (more reliable
-than the `start=25` URL parameter, which sometimes hits stale result pages).
+Uses URL pagination (start=0, 25, 50...) — more reliable than infinite
+scroll which depends on LinkedIn's virtual list lazy-load behaviour.
 """
 
 import time
@@ -24,21 +24,6 @@ _CANDIDATE_SELECTORS = [
     "[class*='job-card']",          # Generic job card fallback
 ]
 _working_selector = None  # Will be detected at runtime
-
-# ── Tunable scroll behaviour ──
-SCROLL_PAUSE_MS = 2500          # wait between scrolls (LinkedIn needs time to lazy-load)
-SCROLL_MAX_NO_NEW = 4           # stop after N consecutive scrolls that add 0 new cards
-SCROLL_MAX_ROUNDS = 200         # hard cap so a misbehaving page can't loop forever
-
-# LinkedIn job results scroll container selectors (scroll THIS, not the whole page)
-_RESULTS_CONTAINER_SELECTORS = [
-    ".scaffold-layout__list-container",
-    "[class*='jobs-search-results-list']",
-    "[class*='jobs-search__results-list']",
-    "ul:has(li[data-occludable-job-id])",
-    "div:has(> [data-occludable-job-id])",
-]
-
 
 def _detect_selector(page) -> str:
     """Detect the correct job card selector for the current LinkedIn page.
@@ -138,41 +123,8 @@ def _extract_card_data(page) -> list[dict]:
     return results
 
 
-def _scroll_results_panel(page) -> None:
-    """Scroll LinkedIn's job results panel (not the whole page).
-    Uses evaluate to scroll the specific container that holds job cards."""
-    # Try each known results container selector
-    for sel in _RESULTS_CONTAINER_SELECTORS:
-        try:
-            el = page.query_selector(sel)
-            if el:
-                el.evaluate("el => el.scrollTop = el.scrollHeight")
-                return
-        except Exception:
-            continue
-    # Fallback: scroll inside the first card's grandparent
-    try:
-        card = page.query_selector("[data-occludable-job-id], .base-search-card")
-        if card:
-            card.evaluate("""el => {
-                let p = el.parentElement;
-                for (let i = 0; i < 5 && p; i++) {
-                    if (p.scrollHeight > p.clientHeight + 10) {
-                        p.scrollTop = p.scrollHeight;
-                        return;
-                    }
-                    p = p.parentElement;
-                }
-            }""")
-            return
-    except Exception:
-        pass
-    # Last resort: scroll whole page
-    page.evaluate("() => window.scrollBy(0, 800)")
-
-
 def _scrape_keyword(page, kw: str) -> list:
-    """Scrape a single keyword using infinite scroll."""
+    """Scrape a single keyword using URL pagination (start=0, 25, 50...)."""
     import urllib.parse
     from config import config
     # Reset selector detection for each keyword
@@ -267,29 +219,45 @@ def _scrape_keyword(page, kw: str) -> list:
                 except Exception:
                     pass
 
-    # If LinkedIn returned 0 results, skip scrolling
+    # If LinkedIn returned 0 results, skip pagination
     if legit_zero_results:
         log.info(f"[LinkedIn] Searching: {kw} → 0 jobs")
         return []
 
-    # Infinite scroll to load all jobs
+    # Paginated page loading (start=0, 25, 50...)
+    # More reliable than scrolling: LinkedIn virtual list only lazy-loads
+    # cards when the viewport passes through intermediate positions.
     jobs_for_kw: list = []
     seen_ids: set[str] = set()
-    prev_count = 0
-    no_new_rounds = 0
-    scroll_round = 0
+    base_url = page.url.split("&start=")[0]  # strip any existing start param
+    page_num = 0
+    max_pages = 10  # safety cap (10 pages × 25 = 250 jobs max per keyword)
 
-    while scroll_round < SCROLL_MAX_ROUNDS:
-        scroll_round += 1
+    while page_num < max_pages:
+        start = page_num * 25
+        page_url = f"{base_url}&start={start}" if page_num > 0 else base_url
 
-        # Scroll the job results panel to load more cards
-        _scroll_results_panel(page)
-        page.wait_for_timeout(SCROLL_PAUSE_MS)
+        if page_num > 0:
+            try:
+                page.goto(page_url, wait_until="domcontentloaded", timeout=30_000)
+                page.wait_for_selector(wait_selectors, timeout=15_000, state="attached")
+                # Re-detect selector (may change between pages)
+                _working_selector = _detect_selector(page)
+            except Exception:
+                log.info(f"[LinkedIn]   Page {page_num + 1} load failed, stopping")
+                break
 
-        # Extract cards after scroll
+        # Check stop flag
+        try:
+            check_stop()
+        except InterruptedError:
+            log.info('[LinkedIn] Stop requested, exiting...')
+            break
+
+        # Extract cards from this page
         cards = _extract_card_data(page)
-        if not cards and scroll_round == 1:
-            # Unknown failure (not a legit 0-result page) — save debug HTML
+        if not cards and page_num == 0:
+            # Unknown failure on first page (shouldn't happen after wait_for_selector)
             log.info(f"[LinkedIn]   No job cards found for '{kw}'")
             debug_dir = Path(__file__).parent.parent / "debug"
             debug_dir.mkdir(exist_ok=True)
@@ -301,15 +269,8 @@ def _scrape_keyword(page, kw: str) -> list:
                 pass
             break
 
-        # Check stop flag
-        try:
-            check_stop()
-        except InterruptedError:
-            log.info('[LinkedIn] Stop requested, exiting...')
-            break
-
-        # Add new jobs
-        new_count = 0
+        # Add new jobs (dedup by id)
+        new_on_page = 0
         for card in cards:
             if card["id"] in seen_ids:
                 continue
@@ -324,22 +285,15 @@ def _scrape_keyword(page, kw: str) -> list:
                 jobs_for_kw.append(BaseScraper.make_job(
                     card["title"], card["company"], "Hong Kong", job_url, "LinkedIn"
                 ))
-                new_count += 1
+                new_on_page += 1
 
-        total_now = len(jobs_for_kw)
+        log.info(f"[LinkedIn]   Page {page_num + 1}: {new_on_page} new jobs (total: {len(jobs_for_kw)})")
 
-        # Check if no new cards for too long (page fully loaded)
-        if total_now == prev_count:
-            no_new_rounds += 1
-            if no_new_rounds >= SCROLL_MAX_NO_NEW:
-                break
-        else:
-            no_new_rounds = 0
-        prev_count = total_now
+        # Stop if page returned fewer than 25 cards (last page)
+        if len(cards) < 25:
+            break
 
-        # Log progress every 5 rounds
-        if scroll_round % 5 == 0:
-            log.info(f"[LinkedIn]   Scroll #{scroll_round}: {total_now} jobs so far...")
+        page_num += 1
 
     log.info(f"[LinkedIn] Searching: {kw} → {len(jobs_for_kw)} jobs")
     return jobs_for_kw
