@@ -62,11 +62,14 @@ def main():
         """)
 
         # Go to LinkedIn login page
-        page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30_000)
+        page.goto("https://www.linkedin.com/login", wait_until="networkidle", timeout=30_000)
+        # Extra wait for social login buttons (Google iframe loads async)
+        time.sleep(3)
         print(f"  [Opened] Browser opened: {page.url}")
         print()
         print("  >>> Please log in to LinkedIn in the browser window <<<")
-        print("  >>> After login is complete, press Enter here <<<")
+        print("  Google/Apple/Microsoft login buttons are BELOW the email form")
+        print("  If not visible, try scrolling down or switching to password login")
         print()
         print("  " + "-" * 56)
 
