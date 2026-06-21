@@ -237,31 +237,36 @@ def _scrape_keyword(page, kw: str) -> list:
         log.info(f"[LinkedIn] Searching: {kw} → 0 jobs")
         return []
 
-    # Infinite scroll to load all results (URL pagination with &start=N doesn't work reliably)
-    # Approach: scroll down gradually, let LinkedIn's lazy-load render new cards
+    # LinkedIn uses virtual list + optional "Show more" button for results
+    # Unified loop: extract cards → try click "Show more" → scroll → repeat
     jobs_for_kw: list = []
     seen_ids: set[str] = set()
-    no_new_count = 0  # consecutive scrolls with no new jobs
-    max_no_new = 5  # stop after 5 consecutive scrolls with no new jobs (more lenient)
-    scroll_count = 0
-    max_scrolls = 50  # safety cap to prevent infinite loop
     
-    log.info(f"[LinkedIn]   Starting infinite scroll for '{kw}'...")
+    log.info(f"[LinkedIn]   Starting scrape for '{kw}'...")
     
-    while no_new_count < max_no_new and scroll_count < max_scrolls:
-        scroll_count += 1
+    # Set tall viewport to force virtual list to render more items
+    try:
+        page.set_viewport_size({"width": 1920, "height": 10000})
+        page.wait_for_timeout(1000)
+    except Exception:
+        pass  # Non-critical if this fails
+    
+    no_new_count = 0
+    max_no_new = 8        # stop after N consecutive iterations with no new jobs
+    iteration = 0
+    max_iterations = 200   # safety cap
+    
+    while no_new_count < max_no_new and iteration < max_iterations:
+        iteration += 1
         
-        # Check stop flag
         try:
             check_stop()
         except InterruptedError:
-            log.info('[LinkedIn] Stop requested, exiting...')
             break
         
-        # Extract cards from current page
+        # --- Extract cards ---
         cards = _extract_card_data(page)
         
-        # Add new jobs (dedup by id)
         new_on_page = 0
         for card in cards:
             if card["id"] in seen_ids:
@@ -280,32 +285,66 @@ def _scrape_keyword(page, kw: str) -> list:
                 new_on_page += 1
         
         if new_on_page > 0:
-            log.info(f"[LinkedIn]   Scroll #{scroll_count}: {new_on_page} new jobs (total: {len(jobs_for_kw)})")
-            no_new_count = 0  # reset counter
+            log.info(f"[LinkedIn]   #{iteration}: {new_on_page} new jobs (total: {len(jobs_for_kw)})")
+            no_new_count = 0          # reset on success
         else:
             no_new_count += 1
-            log.info(f"[LinkedIn]   Scroll #{scroll_count}: 0 new jobs (no_new={no_new_count}/{max_no_new})")
+            log.info(f"[LinkedIn]   #{iteration}: 0 new (no_new={no_new_count}/{max_no_new})")
             if no_new_count >= max_no_new:
-                log.info(f"[LinkedIn]   No new jobs after {max_no_new} scrolls, stopping")
                 break
         
-        # Scroll down to trigger lazy-load
-        try:
-            # Scroll to bottom of page
-            page.evaluate("""() => {
-                window.scrollTo(0, document.body.scrollHeight);
-            }""")
-            page.wait_for_timeout(5000)  # Wait 5s for new cards to render (was 2000)
-            
-            # Also try clicking "Load more" button if it exists
-            load_more = page.query_selector('button[aria-label*="Load more"], button:has-text("Load more"), [class*="load-more"]')
-            if load_more:
-                log.info(f"[LinkedIn]   Found 'Load more' button, clicking...")
-                load_more.click()
+        # --- Try clicking "Show more" / "Load more" / "顯示更多" ---
+        btn_clicked = False
+        for sel in [
+            'button[aria-label="Show more"]',
+            'button[aria-label="顯示更多"]',
+            'button[aria-label="显示更多"]',
+            'button[aria-label="Load more"]',
+        ]:
+            el = page.query_selector(sel)
+            if el:
+                try:
+                    # Use force click — don't require visibility check
+                    el.click(force=True)
+                    log.info(f'[LinkedIn]   Clicked "{sel.split("\"")[1]}"')
+                    page.wait_for_timeout(2500)
+                    btn_clicked = True
+                    no_new_count = 0  # reset counter after button click
+                    break
+                except Exception:
+                    pass
+        
+        # --- Scroll down (skip if we just clicked a button) ---
+        if not btn_clicked:
+            try:
+                # Every 8 iterations, toggle viewport size to force virtual list re-render
+                if iteration % 8 == 0 and iteration > 0:
+                    current = page.viewport_size["height"]
+                    # Toggle between tall and short to trigger re-render
+                    new_height = 20000 if current < 10000 else 500
+                    page.set_viewport_size({"width": 1920, "height": new_height})
+                    page.wait_for_timeout(1500)
+                
+                # Normal scroll: one viewport height
+                page.evaluate("""() => {
+                    window.scrollBy(0, Math.max(window.innerHeight, 800));
+                }""")
                 page.wait_for_timeout(2000)
-        except Exception as e:
-            log.debug(f"[LinkedIn]   Scroll error: {e}")
-            break
+                
+                # Mouse wheel event for natural behavior
+                page.mouse.wheel(0, 600)
+                page.wait_for_timeout(800)
+                
+                # Every 15 iterations, scroll near bottom to reveal Show more
+                if iteration % 15 == 0:
+                    page.evaluate("""() => {
+                        window.scrollTo(0, document.body.scrollHeight);
+                    }""")
+                    page.wait_for_timeout(1500)
+                    
+            except Exception as e:
+                log.debug(f"[LinkedIn]   Scroll error: {e}")
+                break
     
     log.info(f"[LinkedIn] Searching: {kw} → {len(jobs_for_kw)} jobs")
     return jobs_for_kw
