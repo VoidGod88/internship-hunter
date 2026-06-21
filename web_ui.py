@@ -1366,6 +1366,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
         <div class="form-group">
           <label>Experience Level</label>
           <select id="fld_li_exp_level">
+            <option value="">No Filter</option>
             <option value="1">Entry Level</option>
             <option value="2">Associate</option>
             <option value="3">Mid-Senior</option>
@@ -2315,7 +2316,7 @@ async function openSettings() {
     if (liSection) {
       const liYaml = liSection[0];
       const getLi = (key, def) => { const m = liYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
-      document.getElementById('fld_li_exp_level').value = getLi('experience_level', '1');
+      document.getElementById('fld_li_exp_level').value = getLi('experience_level', '');
       document.getElementById('fld_li_sort_by').value = getLi('sort_by', 'R');
       document.getElementById('fld_li_work_types').value = getLi('work_types', '1');
       document.getElementById('fld_li_geo_id').value = getLi('geo_id', '103291313');

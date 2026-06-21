@@ -1,0 +1,51 @@
+cv_pdf_path: D:\WorkBuddy\internship_hunter\internship-hunter\cv.pdf
+search_keywords:
+- summer internship 2026 computer science
+- software engineer intern summer 2026
+- AI internship summer 2026
+- data science intern summer 2026
+scrapers:
+  linkedin: true
+  jobsdb: true
+  indeed: true
+  efinancialcareers: true
+  manual_companies: true
+  polyu: true
+wie_filter:
+  enabled: true
+  require_hk_location: true
+  exclude_non_cs: true
+  exclude_final_year_required: true
+cv_matching:
+  enabled: true
+  match_education: true
+  match_skills: true
+  match_final_year: true
+cover_letter:
+  enabled: true
+  language: en
+email_settings:
+  subject_template: Application for {job_title} – Summer Internship
+  attach_cv: true
+  delay_seconds: 5
+linkedin_filters:
+  experience_level: ''
+  job_types: F,P,I
+  work_types: '1'
+  geo_id: '103291313'
+  sort_by: R
+  posted_within: ''
+jobsdb_filters:
+  category: information-communication-technology
+  work_type: on-site
+  daterange: '7'
+indeed_filters:
+  date_range: '7'
+  job_type: ''
+  sort_by: date
+  radius: '50'
+efc_filters:
+  experience_level: NO_EXPERIENCE
+  posted_within: ''
+  page_size: '15'
+  sort_by: ''

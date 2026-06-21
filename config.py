@@ -132,7 +132,7 @@ class Config:
     email_delay_seconds: int = 5
 
     # ── LinkedIn search filters ──
-    li_exp_level: str = "1"           # 1=Entry, 2=Associate, 3=Mid-Senior, 4=Director, 5=Executive, 6=Internship
+    li_exp_level: str = ""           # 1=Entry, 2=Associate, 3=Mid-Senior, 4=Director, 5=Executive, 6=Internship; empty=no filter
     li_job_types: str = "F,P,I"       # F=Full-time, P=Part-time, I=Internship, C=Contract, T=Temporary, V=Volunteer
     li_work_types: str = "1"          # 1=On-site, 2=Remote, 3=Hybrid
     li_geo_id: str = "103291313"      # LinkedIn geo ID (103291313=Hong Kong)
@@ -220,7 +220,7 @@ class Config:
         # ── LinkedIn Filters ──
         li_filters = _yaml_config.get("linkedin_filters", {})
         if li_filters:
-            cfg.li_exp_level = str(li_filters.get("experience_level", "1"))
+            cfg.li_exp_level = str(li_filters.get("experience_level", ""))
             cfg.li_job_types = str(li_filters.get("job_types", "F,P,I"))
             cfg.li_work_types = str(li_filters.get("work_types", "1"))
             cfg.li_geo_id = str(li_filters.get("geo_id", "103291313"))
