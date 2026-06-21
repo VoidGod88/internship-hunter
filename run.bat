@@ -1,5 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
+chcp 65001 >nul 2>&1
 
 :: ── Step 0: Kill existing processes on port 7861 ──
 echo [1/6] Checking port 7861...
