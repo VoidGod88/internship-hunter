@@ -8,8 +8,10 @@ Internship Hunter — FastAPI Web UI
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
+import threading
 import time
 import uuid
 import yaml
@@ -1217,6 +1219,10 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <button class="btn btn-outline" onclick="linkedinLogin()" title="Open browser to manually log in to LinkedIn (press Enter in terminal to save cookies)">🔐 LinkedIn Login</button>
       <button class="btn btn-outline" onclick="polyuLogin()" title="Open browser to manually log in to PolyU Job Board (saves cookies)">🏫 PolyU Login</button>
     </div>
+    <div class="control-group" style="align-items:center;gap:10px">
+      <button class="btn btn-orange" id="btnAnalyzeAll" onclick="doAnalyzeAll()" title="Batch LLM match for all unevaluated jobs">🤖 Analyze All</button>
+      <span id="analyzeAllProgress" style="font-size:12px;color:var(--muted);display:none"></span>
+    </div>
   </div>
 
   <!-- Log panel -->
@@ -1911,6 +1917,76 @@ async function doAnalyze(btn) {
     }
   } catch(e) { toast("Error: " + e.message, "error"); }
   btnEl.disabled = false; btnEl.textContent = "🤖 AI Analyze";
+}
+
+// ── Analyze All ──
+let _analyzeAllPollTimer = null;
+
+async function doAnalyzeAll() {
+  const btn = document.getElementById("btnAnalyzeAll");
+  const prog = document.getElementById("analyzeAllProgress");
+
+  // Stop if already running
+  if (_analyzeAllPollTimer) {
+    // Check current status
+    const res = await fetch("/api/analyze-all/status");
+    const s = await res.json();
+    if (s.running) {
+      toast("Analyze All is already running", "info");
+      return;
+    }
+    // Was stopped/finished, clear timer
+    clearInterval(_analyzeAllPollTimer);
+    _analyzeAllPollTimer = null;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "⏳ Starting...";
+  prog.style.display = "inline";
+
+  try {
+    const res = await fetch("/api/analyze-all", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      toast(data.error || "Failed to start", "error");
+      btn.disabled = false;
+      btn.textContent = "🤖 Analyze All";
+      prog.style.display = "none";
+      return;
+    }
+    toast("Analyze All started!", "success");
+    prog.textContent = "0/0";
+
+    // Poll progress every 1.5s
+    _analyzeAllPollTimer = setInterval(async () => {
+      try {
+        const r = await fetch("/api/analyze-all/status");
+        const s = await r.json();
+        prog.textContent = `Analyzing ${s.done}/${s.total}  ${s.current ? "— " + s.current : ""}`;
+        if (!s.running) {
+          clearInterval(_analyzeAllPollTimer);
+          _analyzeAllPollTimer = null;
+          btn.disabled = false;
+          btn.textContent = "🤖 Analyze All";
+          const matched = s.matches || 0;
+          const total = s.done || 0;
+          let msg = `Done: ${total} evaluated, ${matched} matched`;
+          if (s.errors) msg += `, ${s.errors} errors`;
+          toast(msg, matched > 0 ? "success" : "info");
+          // Refresh job list to show ✅/❌
+          await refreshJobs();
+          prog.textContent = `✅ ${matched}/${total} matched`;
+          // Auto-hide after 5s
+          setTimeout(() => { prog.style.display = "none"; }, 5000);
+        }
+      } catch(e) { /* network hiccup, ignore */ }
+    }, 1500);
+  } catch(e) {
+    toast("Error: " + e.message, "error");
+    btn.disabled = false;
+    btn.textContent = "🤖 Analyze All";
+    prog.style.display = "none";
+  }
 }
 
 // ── Test Email ──
@@ -2771,6 +2847,82 @@ async def api_analyze(job_id: int, force: bool = False):
     except Exception as e:
         log.exception("[Analyze] Error")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Analyze All (batch LLM match for all unevaluated jobs) ──
+
+_analyze_all_state = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "current": "",
+    "errors": 0,
+    "matches": 0,
+}
+
+
+def _run_analyze_all():
+    """Background thread: iterate jobs without cv_match, call LLM, save results."""
+    global _analyze_all_state
+    try:
+        jobs = get_all_jobs()
+        # Filter: no cv_match yet
+        unevaluated = [j for j in jobs if not j.get("cv_match")]
+        _analyze_all_state["total"] = len(unevaluated)
+        _analyze_all_state["done"] = 0
+        _analyze_all_state["errors"] = 0
+        _analyze_all_state["matches"] = 0
+        _analyze_all_state["current"] = ""
+
+        if not unevaluated:
+            log.info("[AnalyzeAll] All jobs already evaluated")
+            return
+
+        # Load CV profile once
+        cv_profile = load_cv_profile(cfg.cv_pdf_path)
+
+        for job in unevaluated:
+            job_id = job.get("id", 0)
+            title = job.get("title", "?")
+            _analyze_all_state["current"] = title[:50]
+
+            try:
+                result = asyncio.run(_evaluate_cv_match(cv_profile, job))
+                match_json = json.dumps(result, ensure_ascii=False)
+                update_job_cv_match(job_id, match_json)
+                if result.get("overall_match"):
+                    _analyze_all_state["matches"] += 1
+            except Exception as e:
+                log.warning(f"[AnalyzeAll] Job {job_id} error: {e}")
+                _analyze_all_state["errors"] += 1
+
+            _analyze_all_state["done"] += 1
+
+        log.info(f"[AnalyzeAll] Done: {_analyze_all_state['done']}/{_analyze_all_state['total']} "
+                 f"✅{_analyze_all_state['matches']} ❌{_analyze_all_state['errors']}")
+    except Exception as e:
+        log.exception("[AnalyzeAll] Fatal error")
+    finally:
+        _analyze_all_state["running"] = False
+
+
+@app.post("/api/analyze-all")
+async def api_analyze_all():
+    """Start batch LLM match for all unevaluated jobs (non-blocking)."""
+    if _analyze_all_state["running"]:
+        return JSONResponse({"error": "Analyze All is already running"}, status_code=409)
+
+    _analyze_all_state["running"] = True
+    t = threading.Thread(target=_run_analyze_all, daemon=True)
+    t.start()
+    log.info("[AnalyzeAll] Started background thread")
+    return JSONResponse({"success": True, "message": "Analyze All started"})
+
+
+@app.get("/api/analyze-all/status")
+async def api_analyze_all_status():
+    """Poll progress of running Analyze All."""
+    return JSONResponse(_analyze_all_state)
 
 
 if __name__ == "__main__":
