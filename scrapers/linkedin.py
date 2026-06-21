@@ -15,12 +15,16 @@ log = logging.getLogger("hunter")
 
 # ── Dynamic card selector (detected at runtime) ──
 # Try these selectors in order, use the first one that matches
-# Based on LinkedIn diagnostic (2026-06): New structure uses
-#   UL.jobs-search__results-list > div.base-search-card[data-entity-urn]
-# IMPORTANT: Only capture search results, NOT recommended cards in sidebar
+# Based on LinkedIn diagnostic (2026-06-22): Working selectors:
+#   - li[data-occludable-job-id] → 25 cards (confirmed via debug script)
+#   - div[data-job-id] → 8 cards
+#   - .job-card-container → 8 cards
+# Non-working (2026+ LinkedIn no longer uses data-entity-urn):
+#   - div.base-search-card[data-entity-urn] → 0 cards
 _CANDIDATE_SELECTORS = [
-    "ul.jobs-search__results-list div.base-search-card[data-entity-urn]",  # New LinkedIn (2026+) — precise
-    "div.base-search-card[data-entity-urn]",  # Fallback
+    "li[data-occludable-job-id]",  # Confirmed working (2026-06-22)
+    "div[data-job-id]",  # Fallback
+    ".job-card-container",  # Fallback
 ]
 _working_selector = None  # Will be detected at runtime
 
@@ -72,29 +76,50 @@ def _extract_card_data(page) -> list[dict]:
                     str(idx)
                 )
             
-            # Extract title
+            # Extract title — try multiple selectors for old & new LinkedIn structures
             title = ""
-            for sel in [".base-search-card__title", "h3", '[class*="title"]', '[class*="job-title"]']:
+            title_selectors = [
+                "a[href*='/jobs/view/']",  # New structure: title is a link
+                ".base-search-card__title a",   # Old structure
+                "h3 a",                        # Old structure fallback
+                ".job-card-list__title a",      # Alternative new structure
+                "[class*='title'] a",           # Generic
+                "h3",                           # Bare h3
+                "[class*='title']",             # Generic title class
+            ]
+            for sel in title_selectors:
                 el = card.query_selector(sel)
                 if el:
                     text = el.inner_text().strip()
-                    if text:
+                    if text and len(text) > 2:
                         title = text
                         break
             
-            # Extract company
+            # Extract company — try multiple selectors
             company = ""
-            for sel in [".base-search-card__subtitle", "h4", '[class*="company"]', '[class*="subtitle"]']:
+            company_selectors = [
+                "[class*='company']",           # Generic company class
+                ".base-search-card__subtitle",   # Old structure
+                "h4",                           # Old structure fallback
+                ".job-card-container span[class*='subtitle']",  # New structure
+                "span[class*='company']",       # Generic
+            ]
+            for sel in company_selectors:
                 el = card.query_selector(sel)
                 if el:
                     text = el.inner_text().strip()
-                    if text:
+                    if text and len(text) > 0:
                         company = text
                         break
             
-            # Extract URL
+            # Extract URL — find the job link
             href = ""
-            for sel in ['a[href*="/jobs/view/"]', 'a[href*="/jobs/"]', 'a[href*="linkedin.com/jobs/"]']:
+            url_selectors = [
+                "a[href*='/jobs/view/']",      # Job detail page
+                "a[href*='/jobs/']",            # Any job link
+                "a[href*='linkedin.com/jobs']", # Full URL
+            ]
+            for sel in url_selectors:
                 el = card.query_selector(sel)
                 if el:
                     link = el.get_attribute("href")
