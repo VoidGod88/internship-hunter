@@ -803,13 +803,10 @@ async def api_save_settings(request: Request):
             stream = io.StringIO()
             yaml.dump(config, stream, default_flow_style=False, allow_unicode=True, sort_keys=False)
             yaml_text = stream.getvalue()
-            # Clean up trailing spaces from yaml.dump
-            yaml_text = "
-".join(line.rstrip() for line in yaml_text.splitlines())
-            if not yaml_text.endswith("
-"):
-                yaml_text += "
-"
+            # Clean up: ensure no trailing spaces, normalize line endings
+            yaml_text = yaml_text.replace('\r\n', '\n').replace('\r', '\n')
+            if not yaml_text.endswith('\n'):
+                yaml_text += '\n'
             with open(yaml_path, "w", encoding="utf-8") as f:
                 f.write(yaml_text)
 
@@ -1538,42 +1535,54 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ── SSE ──
-const evtSource = new EventSource("/api/sse");
+let evtSource = null;
 let logBuffer = "";
 let fullLogLoaded = false;
 
-evtSource.onmessage = (e) => {
-  try {
-    const data = JSON.parse(e.data);
-    if (data.full_log !== undefined) {
-      document.getElementById("logBox").textContent = data.full_log || "(No log yet)";
-      logBuffer = data.full_log || "";
-      fullLogLoaded = true;
-    }
-    if (data.new_log) {
-      logBuffer += data.new_log;
-      const lines = logBuffer.split("\n");
-      if (lines.length > 500) {
-        logBuffer = lines.slice(-500).join("\n");
+function connectSSE() {
+  if (evtSource) {
+    evtSource.close();
+    evtSource = null;
+  }
+  evtSource = new EventSource("/api/sse");
+  evtSource.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.full_log !== undefined) {
+        document.getElementById("logBox").textContent = data.full_log || "(No log yet)";
+        logBuffer = data.full_log || "";
+        fullLogLoaded = true;
       }
-      const box = document.getElementById("logBox");
-      box.textContent = logBuffer;
-      box.scrollTop = box.scrollHeight;
-    }
-    if (data.status) {
-      currentRunning = data.running;
-      updateStatusUI(data.status, data.running, data.progress_html);
-    }
-    if (data.jobs) {
-      currentJobs = data.jobs;
-      refreshJobSelector();
-    }
-    if (data.history) {
-      currentHistory = data.history;
-    }
-  } catch(ex) { console.warn("SSE parse error:", ex); }
-};
-evtSource.onerror = () => { /* auto-reconnect */ };
+      if (data.new_log) {
+        logBuffer += data.new_log;
+        const lines = logBuffer.split("\n");
+        if (lines.length > 500) {
+          logBuffer = lines.slice(-500).join("\n");
+        }
+        const box = document.getElementById("logBox");
+        box.textContent = logBuffer;
+        box.scrollTop = box.scrollHeight;
+      }
+      if (data.status) {
+        currentRunning = data.running;
+        updateStatusUI(data.status, data.running, data.progress_html);
+      }
+      if (data.jobs) {
+        currentJobs = data.jobs;
+        refreshJobSelector();
+      }
+      if (data.history) {
+        currentHistory = data.history;
+      }
+    } catch(ex) { console.warn("SSE parse error:", ex); }
+  };
+  evtSource.onerror = (e) => {
+    console.warn("SSE connection lost, reconnecting...", e);
+    // Browser will auto-reconnect, but we force reconnect after 3s
+    setTimeout(connectSSE, 3000);
+  };
+}
+connectSSE();
 
 // ── Job Selector ──
 function getMatchRank(j) {
@@ -2395,8 +2404,7 @@ async function saveSettings() {
     // Build .env map
     const envMap = {};
     const envText = document.getElementById('envEditor').value;
-    envText.split('
-').forEach(line => {
+    envText.split('\n').forEach(line => {
       const idx = line.indexOf('=');
       if (idx > 0) envMap[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
     });
@@ -2408,10 +2416,8 @@ async function saveSettings() {
     envMap['LLM_MODEL'] = document.getElementById('fld_llm_model').value.trim();
     let newEnv = '';
     const envOrder = ['EMAIL', 'EMAIL_PASSWORD', 'LLM_PROVIDER', 'LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL'];
-    envOrder.forEach(k => { if (envMap[k] !== undefined) newEnv += k + '=' + envMap[k] + '
-'; });
-    Object.keys(envMap).forEach(k => { if (!envOrder.includes(k)) newEnv += k + '=' + envMap[k] + '
-'; });
+    envOrder.forEach(k => { if (envMap[k] !== undefined) newEnv += k + '=' + envMap[k] + + '\n'; });
+    Object.keys(envMap).forEach(k => { if (!envOrder.includes(k)) newEnv += k + '=' + envMap[k] + + '\n'; });
 
     // Send as JSON (form tabs) or raw YAML (advanced tab)
     let res;
