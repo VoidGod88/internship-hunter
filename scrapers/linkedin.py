@@ -19,12 +19,8 @@ log = logging.getLogger("hunter")
 #   UL.jobs-search__results-list > div.base-search-card[data-entity-urn]
 # IMPORTANT: Only capture search results, NOT recommended cards in sidebar
 _CANDIDATE_SELECTORS = [
-    "ul.jobs-search__results-list div.base-search-card[data-entity-urn]",  # Precise: only search results
-    "ul.jobs-search__results-list li[data-occludable-job-id]",           # Old structure, search results only
-    "div.base-search-card[data-entity-urn]",  # New structure (may include recommended)
-    "li[data-occludable-job-id]",            # Old LinkedIn structure
-    "[data-occludable-job-id]",              # Generic old structure
-    "[class*='job-card']",                   # Generic fallback
+    "ul.jobs-search__results-list div.base-search-card[data-entity-urn]",  # New LinkedIn (2026+) — precise
+    "div.base-search-card[data-entity-urn]",  # Fallback
 ]
 _working_selector = None  # Will be detected at runtime
 
@@ -206,7 +202,6 @@ def _scrape_keyword(page, kw: str) -> list:
         try:
             wait_selectors = ", ".join([
                 "div.base-search-card[data-entity-urn]",
-                "li[data-occludable-job-id]",
                 "[data-entity-urn*='jobPosting:']",
             ])
             page.wait_for_selector(wait_selectors, timeout=15_000, state="attached")
