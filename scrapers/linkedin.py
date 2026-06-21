@@ -238,6 +238,16 @@ def _scrape_keyword(page, kw: str) -> list:
 
 def scrape_linkedin(page, keywords: list[str]) -> list:
     """Scrape LinkedIn HK jobs. One browser session for all keywords."""
+    # Ensure LinkedIn session is established (cookies need feed/ visit to activate)
+    current = page.url
+    if "feed" not in current and "linkedin.com" not in current:
+        log.info("[LinkedIn]   Establishing session (navigating to feed/)")
+        try:
+            page.goto("https://www.linkedin.com/feed/", timeout=30000)
+            page.wait_for_url("**/feed/**", timeout=15000)
+        except Exception as e:
+            log.warning(f"[LinkedIn]   Feed navigation timeout (may already be logged in): {e}")
+
     jobs: list = []
     log.info(f"[LinkedIn] Searching {len(keywords)} keywords...")
 
