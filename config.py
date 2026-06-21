@@ -141,20 +141,21 @@ class Config:
 
     # ── JobsDB search filters ──
     jd_category: str = "information-communication-technology"
-    jd_work_type: str = "on-site"     # on-site, remote, hybrid
+    jd_work_type: list = field(default_factory=list)  # [242,243,244,245] etc. Empty=all
+    jd_work_arrangement: list = field(default_factory=list)  # [1,2,3] On-site/Hybrid/Remote
     jd_daterange: str = "7"           # 1, 3, 7, 14, 30, or empty
 
     # ── Indeed search filters ──
-    id_date_range: str = ""           # fromage: 7, 14, 30, or empty
+    id_date_range: str = ""           # fromage: 1, 3, 7, 14, or empty
+    id_education: str = "bachelor"   # bachelor, master, phd, diploma (encrypted URL)
     id_job_type: str = ""             # internship, fulltime, parttime, contract, or empty
     id_sort_by: str = ""              # date, relevance
     id_radius: str = ""               # km radius
 
     # ── eFC search filters ──
-    efc_exp_level: str = "NO_EXPERIENCE"  # NO_EXPERIENCE, ENTRY_LEVEL, MID_SENIOR, etc.
+    efc_exp_level: list = field(default_factory=list)  # NO_EXPERIENCE, ONE_THREE_YEARS, etc.
     efc_posted_within: str = ""           # 1, 7, 14, 30, or empty
     efc_page_size: str = "15"             # max 50
-    efc_sort_by: str = ""                 # date, relevance, or empty for default
 
     @classmethod
     def load(cls) -> "Config":
@@ -249,13 +250,23 @@ class Config:
         jd_filters = _yaml_config.get("jobsdb_filters", {})
         if jd_filters:
             cfg.jd_category = str(jd_filters.get("category", "information-communication-technology"))
-            cfg.jd_work_type = str(jd_filters.get("work_type", "on-site"))
+            wt = jd_filters.get("work_type", [])
+            if isinstance(wt, str):
+                cfg.jd_work_type = [x.strip() for x in wt.split(",") if x.strip()] if wt else []
+            else:
+                cfg.jd_work_type = list(wt) if wt else []
+            wa = jd_filters.get("work_arrangement", [])
+            if isinstance(wa, str):
+                cfg.jd_work_arrangement = [x.strip() for x in wa.split(",") if x.strip()] if wa else []
+            else:
+                cfg.jd_work_arrangement = list(wa) if wa else []
             cfg.jd_daterange = str(jd_filters.get("daterange", "7"))
 
         # ── Indeed Filters ──
         id_filters = _yaml_config.get("indeed_filters", {})
         if id_filters:
             cfg.id_date_range = str(id_filters.get("date_range", ""))
+            cfg.id_education = str(id_filters.get("education", "bachelor"))
             cfg.id_job_type = str(id_filters.get("job_type", ""))
             cfg.id_sort_by = str(id_filters.get("sort_by", ""))
             cfg.id_radius = str(id_filters.get("radius", ""))
@@ -263,10 +274,13 @@ class Config:
         # ── eFC Filters ──
         efc_filters = _yaml_config.get("efc_filters", {})
         if efc_filters:
-            cfg.efc_exp_level = str(efc_filters.get("experience_level", "NO_EXPERIENCE"))
+            exp = efc_filters.get("experience_level", [])
+            if isinstance(exp, str):
+                cfg.efc_exp_level = [x.strip() for x in exp.split(",") if x.strip()] if exp else []
+            else:
+                cfg.efc_exp_level = list(exp) if exp else []
             cfg.efc_posted_within = str(efc_filters.get("posted_within", ""))
             cfg.efc_page_size = str(efc_filters.get("page_size", "15"))
-            cfg.efc_sort_by = str(efc_filters.get("sort_by", ""))
 
         return cfg
 

@@ -1303,6 +1303,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <div class="settings-tab" onclick="switchSettingsTab('linkedin')">🔗 LinkedIn</div>
       <div class="settings-tab" onclick="switchSettingsTab('jobsdb')">🔴 JobsDB</div>
       <div class="settings-tab" onclick="switchSettingsTab('efc')">🟢 eFC</div>
+      <div class="settings-tab" onclick="switchSettingsTab('indeed')">🔍 Indeed</div>
       <div class="settings-tab" onclick="switchSettingsTab('advanced')">🔧 Advanced</div>
     </div>
 
@@ -1434,19 +1435,27 @@ select.input-sm { min-width:200px; cursor:pointer; }
 
     <!-- Tab: JobsDB Filters -->
     <div class="settings-panel" id="settingsPanel-jobsdb">
-      <div class="form-row">
-        <div class="form-group">
-          <label>Category</label>
-          <input type="text" id="fld_jd_category" placeholder="information-communication-technology">
-          <div class="form-hint">URL slug: jobs-in-{category}. Must match JobsDB category slug.</div>
+      <div class="form-group">
+        <label>Category</label>
+        <input type="text" id="fld_jd_category" placeholder="information-communication-technology">
+        <div class="form-hint">URL slug: jobs-in-{category}. Must match JobsDB category slug.</div>
+      </div>
+      <div class="form-group">
+        <label>Work Type (multi-select)</label>
+        <div style="display:flex;gap:10px;flex-wrap:nowrap;padding-top:4px">
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="242" id="fld_jd_wt_242"> Full time</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="243" id="fld_jd_wt_243"> Part time</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="244" id="fld_jd_wt_244"> Contract/Temp</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="245" id="fld_jd_wt_245"> Casual/Vacation</label>
         </div>
-        <div class="form-group">
-          <label>Work Type</label>
-          <select id="fld_jd_work_type">
-            <option value="on-site">On-site</option>
-            <option value="remote">Remote</option>
-            <option value="hybrid">Hybrid</option>
-          </select>
+        <div class="form-hint">Leave all unchecked = all work types</div>
+      </div>
+      <div class="form-group">
+        <label>Work Arrangement (multi-select)</label>
+        <div style="display:flex;gap:10px;flex-wrap:nowrap;padding-top:4px">
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="1" id="fld_jd_wa_1"> On-site</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="2" id="fld_jd_wa_2"> Hybrid</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="3" id="fld_jd_wa_3"> Remote</label>
         </div>
       </div>
       <div class="form-group">
@@ -1461,30 +1470,23 @@ select.input-sm { min-width:200px; cursor:pointer; }
         </select>
       </div>
       <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
-        ⚡ JobsDB HK URL: /keyword-jobs-in-{category}/{work_type}[?daterange=N]
+        ⚡ JobsDB HK URL: /keyword-jobs-in-{category}[?worktype=ID,IDs&workarrangement=1,2&daterange=N]
       </div>
     </div>
 
     <!-- Tab: eFC Filters -->
     <div class="settings-panel" id="settingsPanel-efc">
-      <div class="form-row">
-        <div class="form-group">
-          <label>Experience Level</label>
-          <select id="fld_efc_exp_level">
-            <option value="">Any Level</option>
-            <option value="NO_EXPERIENCE">No Experience</option>
-            <option value="ENTRY_LEVEL">Entry Level</option>
-            <option value="MID_SENIOR">Mid-Senior</option>
-          </select>
+      <div class="form-group">
+        <label>Experience Level (multi-select)</label>
+        <div style="display:flex;gap:8px;flex-wrap:nowrap;padding-top:4px">
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="NO_EXPERIENCE" id="fld_efc_exp_0"> No Exp</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="ONE_THREE_YEARS" id="fld_efc_exp_1"> 1-3 Yrs</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="THREE_FIVE_YEARS" id="fld_efc_exp_2"> 3-5 Yrs</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="FIVE_SEVEN_YEARS" id="fld_efc_exp_3"> 5-7 Yrs</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="SEVEN_TEN_YEARS" id="fld_efc_exp_4"> 7-10 Yrs</label>
+          <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="TEN_FIFTEEN_YEARS" id="fld_efc_exp_5"> 10-15 Yrs</label>
         </div>
-        <div class="form-group">
-          <label>Sort By</label>
-          <select id="fld_efc_sort_by">
-            <option value="">Default</option>
-            <option value="date">Most Recent</option>
-            <option value="relevance">Relevance</option>
-          </select>
-        </div>
+        <div class="form-hint">Leave all unchecked = all levels</div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -1508,6 +1510,48 @@ select.input-sm { min-width:200px; cursor:pointer; }
       </div>
       <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
         ⚡ eFinancialCareers HK: /jobs/{keyword}/in-hong-kong?filters.experienceLevel=...
+      </div>
+    </div>
+
+    <!-- Tab: Indeed Filters -->
+    <div class="settings-panel" id="settingsPanel-indeed">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Posted Within (fromage)</label>
+          <select id="fld_id_date_range">
+            <option value="">All Dates</option>
+            <option value="1">Past 24 Hours</option>
+            <option value="3">Past 3 Days</option>
+            <option value="7">Past 7 Days</option>
+            <option value="14">Past 14 Days</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Education Level</label>
+          <select id="fld_id_education">
+            <option value="bachelor">Bachelor's (學士學位)</option>
+            <option value="master">Master's (碩士學位)</option>
+            <option value="phd">PhD (博士學位)</option>
+            <option value="diploma">Diploma (高級文憑)</option>
+          </select>
+          <div class="form-hint">⚠️ Education filter uses encrypted URL param — only default options available</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Radius (km)</label>
+          <input type="text" id="fld_id_radius" placeholder="50">
+        </div>
+        <div class="form-group">
+          <label>Sort By</label>
+          <select id="fld_id_sort_by">
+            <option value="date">Date (日期)</option>
+            <option value="relevance">Relevance (相關性)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-hint" style="margin-top:8px;padding:8px;background:#fef3c7;border-radius:6px">
+        ⚠️ Indeed URL params are partially encrypted (sc=). Date range and location work via URL. Education/salary filters use encrypted params.
       </div>
     </div>
 
@@ -2387,25 +2431,98 @@ async function openSettings() {
       }
     }
 
-    // Parse JobsDB filters from YAML
-    const jdSection = yamlText.match(/^jobsdb_filters:[\s\S]*?(?=\n\S|\n*$)/m);
-    if (jdSection) {
-      const jdYaml = jdSection[0];
-      const getJd = (key, def) => { const m = jdYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
-      document.getElementById('fld_jd_category').value = getJd('category', 'information-communication-technology');
-      document.getElementById('fld_jd_work_type').value = getJd('work_type', 'on-site');
-      document.getElementById('fld_jd_daterange').value = getJd('daterange', '7');
+    // Parse JobsDB filters from YAML (or parsed_config)
+    if (d.parsed_config && d.parsed_config.jobsdb_filters) {
+      const jd = d.parsed_config.jobsdb_filters;
+      document.getElementById('fld_jd_category').value = jd.category || 'information-communication-technology';
+
+      // Work type: check checkboxes
+      const jdWt = Array.isArray(jd.work_type) ? jd.work_type : [];
+      ['242','243','244','245'].forEach(v => {
+        const cb = document.getElementById('fld_jd_wt_' + v);
+        if (cb) cb.checked = jdWt.includes(v) || jdWt.includes(parseInt(v));
+      });
+
+      // Work arrangement: check checkboxes
+      const jdWa = Array.isArray(jd.work_arrangement) ? jd.work_arrangement : [];
+      ['1','2','3'].forEach(v => {
+        const cb = document.getElementById('fld_jd_wa_' + v);
+        if (cb) cb.checked = jdWa.includes(v) || jdWa.includes(parseInt(v));
+      });
+
+      document.getElementById('fld_jd_daterange').value = jd.daterange || '7';
+    } else {
+      // Fallback: parse from YAML text
+      const jdSection = yamlText.match(/^jobsdb_filters:[\s\S]*?(?=\n\S|\n*$)/m);
+      if (jdSection) {
+        const jdYaml = jdSection[0];
+        const getJd = (key, def) => { const m = jdYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
+        document.getElementById('fld_jd_category').value = getJd('category', 'information-communication-technology');
+
+        // Work type (legacy string or list format)
+        const jdWtStr = getJd('work_type', '');
+        if (jdWtStr) { jdWtStr.split(',').forEach(v => { const cb = document.getElementById('fld_jd_wt_' + v.trim()); if (cb) cb.checked = true; }); }
+
+        // Work arrangement
+        const jdWaStr = getJd('work_arrangement', '');
+        if (jdWaStr) { jdWaStr.split(',').forEach(v => { const cb = document.getElementById('fld_jd_wa_' + v.trim()); if (cb) cb.checked = true; }); }
+
+        document.getElementById('fld_jd_daterange').value = getJd('daterange', '7');
+      }
     }
 
-    // Parse eFC filters from YAML
-    const efcSection = yamlText.match(/^efc_filters:[\s\S]*?(?=\n\S|\n*$)/m);
-    if (efcSection) {
-      const efcYaml = efcSection[0];
-      const getEfc = (key, def) => { const m = efcYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
-      document.getElementById('fld_efc_exp_level').value = getEfc('experience_level', 'NO_EXPERIENCE');
-      document.getElementById('fld_efc_posted_within').value = getEfc('posted_within', '');
-      document.getElementById('fld_efc_page_size').value = getEfc('page_size', '15');
-      document.getElementById('fld_efc_sort_by').value = getEfc('sort_by', '');
+    // Parse eFC filters from YAML (or parsed_config)
+    if (d.parsed_config && d.parsed_config.efc_filters) {
+      const efc = d.parsed_config.efc_filters;
+
+      // Experience Level: check checkboxes
+      const efcExp = Array.isArray(efc.experience_level) ? efc.experience_level : [];
+      ['NO_EXPERIENCE','ONE_THREE_YEARS','THREE_FIVE_YEARS','FIVE_SEVEN_YEARS','SEVEN_TEN_YEARS','TEN_FIFTEEN_YEARS'].forEach(v => {
+        const cb = document.getElementById('fld_efc_exp_' + ['NO_EXPERIENCE','ONE_THREE_YEARS','THREE_FIVE_YEARS','FIVE_SEVEN_YEARS','SEVEN_TEN_YEARS','TEN_FIFTEEN_YEARS'].indexOf(v));
+        if (cb) cb.checked = efcExp.includes(v);
+      });
+
+      document.getElementById('fld_efc_posted_within').value = efc.posted_within || '';
+      document.getElementById('fld_efc_page_size').value = efc.page_size || '15';
+    } else {
+      // Fallback: parse from YAML text
+      const efcSection = yamlText.match(/^efc_filters:[\s\S]*?(?=\n\S|\n*$)/m);
+      if (efcSection) {
+        const efcYaml = efcSection[0];
+        const getEfc = (key, def) => { const m = efcYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def };
+
+        // Experience level (legacy string or list)
+        const efcExpStr = getEfc('experience_level', '');
+        if (efcExpStr) {
+          const expVals = ['NO_EXPERIENCE','ONE_THREE_YEARS','THREE_FIVE_YEARS','FIVE_SEVEN_YEARS','SEVEN_TEN_YEARS','TEN_FIFTEEN_YEARS'];
+          efcExpStr.split(',').forEach(v => {
+            const idx = expVals.indexOf(v.trim());
+            if (idx >= 0) { const cb = document.getElementById('fld_efc_exp_' + idx); if (cb) cb.checked = true; }
+          });
+        }
+        document.getElementById('fld_efc_posted_within').value = getEfc('posted_within', '');
+        document.getElementById('fld_efc_page_size').value = getEfc('page_size', '15');
+      }
+    }
+
+    // Parse Indeed filters from YAML (or parsed_config)
+    if (d.parsed_config && d.parsed_config.indeed_filters) {
+      const id = d.parsed_config.indeed_filters;
+      document.getElementById('fld_id_date_range').value = id.date_range || '';
+      document.getElementById('fld_id_education').value = id.education || 'bachelor';
+      document.getElementById('fld_id_sort_by').value = id.sort_by || 'date';
+      document.getElementById('fld_id_radius').value = (id.radius || '50').toString();
+    } else {
+      // Fallback: parse from YAML text
+      const idSection = yamlText.match(/^indeed_filters:[\s\S]*?(?=\n\S|\n*$)/m);
+      if (idSection) {
+        const idYaml = idSection[0];
+        const getId = (key, def) => { const m = idYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
+        document.getElementById('fld_id_date_range').value = getId('date_range', '');
+        document.getElementById('fld_id_education').value = getId('education', 'bachelor');
+        document.getElementById('fld_id_sort_by').value = getId('sort_by', 'date');
+        document.getElementById('fld_id_radius').value = getId('radius', '50');
+      }
     }
 
     // Show config warnings if any
@@ -2458,18 +2575,39 @@ async function saveSettings() {
     };
 
     // jobsdb_filters
+    const jdWorkTypes = ['242','243','244','245'].filter(v => {
+      const cb = document.getElementById('fld_jd_wt_' + v);
+      return cb && cb.checked;
+    });
+    const jdWorkArrangements = ['1','2','3'].filter(v => {
+      const cb = document.getElementById('fld_jd_wa_' + v);
+      return cb && cb.checked;
+    });
     settings['jobsdb_filters'] = {
       'category': document.getElementById('fld_jd_category').value.trim() || 'information-communication-technology',
-      'work_type': document.getElementById('fld_jd_work_type').value,
+      'work_type': jdWorkTypes,
+      'work_arrangement': jdWorkArrangements,
       'daterange': document.getElementById('fld_jd_daterange').value,
     };
 
     // efc_filters
+    const efcExpLevels = ['NO_EXPERIENCE','ONE_THREE_YEARS','THREE_FIVE_YEARS','FIVE_SEVEN_YEARS','SEVEN_TEN_YEARS','TEN_FIFTEEN_YEARS'].filter((v, i) => {
+      const cb = document.getElementById('fld_efc_exp_' + i);
+      return cb && cb.checked;
+    });
     settings['efc_filters'] = {
-      'experience_level': document.getElementById('fld_efc_exp_level').value,
+      'experience_level': efcExpLevels,
       'posted_within': document.getElementById('fld_efc_posted_within').value,
       'page_size': document.getElementById('fld_efc_page_size').value,
-      'sort_by': document.getElementById('fld_efc_sort_by').value,
+    };
+
+    // indeed_filters
+    settings['indeed_filters'] = {
+      'date_range': document.getElementById('fld_id_date_range').value,
+      'education': document.getElementById('fld_id_education').value || 'bachelor',
+      'job_type': '',  // encrypted, not configurable via UI
+      'sort_by': document.getElementById('fld_id_sort_by').value,
+      'radius': document.getElementById('fld_id_radius').value.trim() || '50',
     };
 
     // Build .env map

@@ -94,23 +94,55 @@ def _check_page_6(page, base_url: str) -> bool:
 def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int = 0) -> list:
     """
     Scrape JobsDB HK for internship jobs.
-    URL format from config: /{keyword}-jobs-in-{category}/{work_type}[?daterange=N][&page=N]
+    URL format from config: /{keyword}-jobs-in-{category}/{work_type}[?daterange=N&workarrangement=...][&page=N]
     """
     all_jobs = []
     log.info(f"[JobsDB] Searching {len(keywords)} keywords...")
 
+    # JobsDB ID mapping
+    WT_IDS = {"242": "Full time", "243": "Part time", "244": "Contract/Temp", "245": "Casual/Vacation"}
+    WA_IDS = {"1": "On-site", "2": "Hybrid", "3": "Remote"}
+
     for kw in keywords:
         kw_slug = kw.lower().replace(" ", "-")
         category = config.jd_category or "information-communication-technology"
-        work_type = config.jd_work_type or "on-site"
-        base_url = f"https://hk.jobsdb.com/{kw_slug}-jobs-in-{category}/{work_type}"
 
-        # Build URL with filters from config
-        scrape_url = base_url
-        if config.jd_daterange:
-            scrape_url = base_url + f"?daterange={config.jd_daterange}"
-            log.info(f"[JobsDB]   {kw}: daterange={config.jd_daterange}")
+        # Work type: list of IDs → comma-separated string (or empty for all)
+        if config.jd_work_type:
+            wt_ids = [str(v) for v in config.jd_work_type]
+            wt_str = ",".join(wt_ids)
+            wt_labels = [WT_IDS.get(v, v) for v in wt_ids]
+            log.info(f"[JobsDB]   {kw}: work_type={', '.join(wt_labels)}")
         else:
+            wt_str = ""
+            log.info(f"[JobsDB]   {kw}: work_type=all")
+
+        base_url = f"https://hk.jobsdb.com/{kw_slug}-jobs-in-{category}"
+        if wt_str:
+            base_url += f"/in-undefined?worktype={wt_str}"  # JobsDB uses /in-undefined when work type is specified
+        else:
+            base_url += "/in-undefined"
+
+        # Build query params
+        params = []
+
+        # Work arrangement (remote options): list → comma-separated
+        if config.jd_work_arrangement:
+            wa_ids = [str(v) for v in config.jd_work_arrangement]
+            wa_str = ",".join(wa_ids)
+            wa_labels = [WA_IDS.get(v, v) for v in wa_ids]
+            params.append(f"workarrangement={wa_str}")
+            log.info(f"[JobsDB]   {kw}: work_arrangement={', '.join(wa_labels)}")
+
+        # Date range
+        if config.jd_daterange:
+            params.append(f"daterange={config.jd_daterange}")
+            log.info(f"[JobsDB]   {kw}: daterange={config.jd_daterange}")
+
+        scrape_url = base_url
+        if params:
+            scrape_url = base_url + "?" + "&".join(params)
+        elif not config.jd_daterange:
             # No daterange configured — probe page 6 to decide
             has_page_6 = _check_page_6(page, base_url)
             if has_page_6:

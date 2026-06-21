@@ -39,8 +39,10 @@ def _build_url(keyword: str) -> str:
         "includeUnspecifiedSalary=true",
         "enableVectorSearch=true",
     ]
-    if config.efc_exp_level:
-        params.append(f"filters.experienceLevel={config.efc_exp_level}")
+    if config.efc_exp_level and len(config.efc_exp_level) > 0:
+        # List → pipe-separated for eFC URL
+        exp_str = "%7C".join(str(v) for v in config.efc_exp_level)  # %7C = |
+        params.append(f"filters.experienceLevel={exp_str}")
     if config.efc_posted_within:
         params.append(f"filters.postedWithin={config.efc_posted_within}")
     if config.efc_sort_by:

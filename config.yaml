@@ -37,15 +37,16 @@ linkedin_filters:
   posted_within: ''              # Single: past_24h, past_week, past_month, or empty
 jobsdb_filters:
   category: information-communication-technology
-  work_type: on-site
+  work_type: []                  # Multi-select: 242=Full time, 243=Part time, 244=Contract/Temp, 245=Casual/Vacation
+  work_arrangement: []           # Multi-select: 1=On-site, 2=Hybrid, 3=Remote
   daterange: '7'
 indeed_filters:
   date_range: '7'
+  education: bachelor           # Single: bachelor, master, phd, diploma (encrypted URL param, default bachelor)
   job_type: ''
   sort_by: date
   radius: '50'
 efc_filters:
-  experience_level: NO_EXPERIENCE
+  experience_level: []           # Multi-select: NO_EXPERIENCE, ONE_THREE_YEARS, THREE_FIVE_YEARS, FIVE_SEVEN_YEARS, SEVEN_TEN_YEARS, TEN_FIFTEEN_YEARS
   posted_within: ''
   page_size: '15'
-  sort_by: ''
