@@ -942,7 +942,7 @@ body { font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-
   background:var(--bg); color:var(--text); min-height:100vh; }
 
 /* Layout */
-.app { max-width:1400px; margin:0 auto; padding:12px 16px; display:flex; flex-direction:column; min-height:100vh; }
+.app { max-width:1400px; margin:0 auto; padding:12px 16px; display:flex; flex-direction:column; }
 .header { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); margin-bottom:12px; }
 .header h1 { font-size:18px; font-weight:700; }
 .status-dot { width:10px; height:10px; border-radius:50%; display:inline-block; flex-shrink:0; }
