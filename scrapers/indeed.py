@@ -131,6 +131,18 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
         if config.id_radius:
             params.append(f"radius={config.id_radius}")
         params.append("l=Hong+Kong")
+        # Indeed education filter: encrypted sc= parameter
+        # Codes: HFDVW=Bachelor, EXSNN=Master, 6QC5F=PhD, MR89S=Diploma
+        if config.id_education:
+            valid = {"HFDVW","EXSNN","6QC5F","MR89S"}
+            codes = [c for c in config.id_education if c in valid]
+            if codes:
+                if len(codes) == 1:
+                    sc_val = f"0kf%3Aattr%28{codes[0]}%29%3B"
+                else:
+                    sc_val = f"0kf%3Aattr%28{'%7C'.join(codes)}%252COR%29%3B"
+                params.append(f"sc={sc_val}")
+                log.info(f"[Indeed]   education sc={sc_val}")
         base_url = "https://hk.indeed.com/jobs?" + "&".join(params)
         log.info(f"[Indeed] Searching: {kw} | URL: {base_url}")
         start = 0

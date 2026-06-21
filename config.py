@@ -147,7 +147,7 @@ class Config:
 
     # ── Indeed search filters ──
     id_date_range: str = ""           # fromage: 1, 3, 7, 14, or empty
-    id_education: str = "bachelor"   # bachelor, master, phd, diploma (encrypted URL)
+    id_education: list = field(default_factory=list)  # ["HFDVW","EXSNN","6QC5F","MR89S"]
     id_job_type: str = ""             # internship, fulltime, parttime, contract, or empty
     id_sort_by: str = ""              # date, relevance
     id_radius: str = ""               # km radius
@@ -266,7 +266,11 @@ class Config:
         id_filters = _yaml_config.get("indeed_filters", {})
         if id_filters:
             cfg.id_date_range = str(id_filters.get("date_range", ""))
-            cfg.id_education = str(id_filters.get("education", "bachelor"))
+            edu = id_filters.get("education", [])
+            if isinstance(edu, str):
+                cfg.id_education = [v.strip() for v in edu.split(",") if v.strip()] if edu else []
+            else:
+                cfg.id_education = list(edu) if edu else []
             cfg.id_job_type = str(id_filters.get("job_type", ""))
             cfg.id_sort_by = str(id_filters.get("sort_by", ""))
             cfg.id_radius = str(id_filters.get("radius", ""))

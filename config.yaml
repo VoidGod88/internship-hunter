@@ -29,24 +29,34 @@ email_settings:
   attach_cv: true
   delay_seconds: 5
 linkedin_filters:
-  experience_level: []           # Multi-select: 1=Entry, 2=Associate, 3=Mid-Senior, 4=Director, 5=Executive, 6=Internship
-  job_types: ["F","P","I"]      # Multi-select: F=Full-time, P=Part-time, I=Internship, C=Contract, T=Temporary, V=Volunteer
-  work_types: ["1"]              # Multi-select: 1=On-site, 2=Remote, 3=Hybrid
-  geo_id: '103291313'           # Single: LinkedIn geo ID (103291313=Hong Kong)
-  sort_by: 'R'                  # Single: R=Relevance, DD=Most recent
-  posted_within: ''              # Single: past_24h, past_week, past_month, or empty
+  experience_level:
+  - '1'
+  - '2'
+  job_types:
+  - F
+  - P
+  - I
+  work_types:
+  - '1'
+  geo_id: '103291313'
+  sort_by: R
+  posted_within: ''
 jobsdb_filters:
   category: information-communication-technology
-  work_type: []                  # Multi-select: 242=Full time, 243=Part time, 244=Contract/Temp, 245=Casual/Vacation
-  work_arrangement: []           # Multi-select: 1=On-site, 2=Hybrid, 3=Remote
+  work_type:
+  - '242'
+  work_arrangement:
+  - '1'
   daterange: '7'
 indeed_filters:
   date_range: '7'
-  education: bachelor           # Single: bachelor, master, phd, diploma (encrypted URL param, default bachelor)
+  education:
+  - HFDVW
   job_type: ''
   sort_by: date
   radius: '50'
 efc_filters:
-  experience_level: []           # Multi-select: NO_EXPERIENCE, ONE_THREE_YEARS, THREE_FIVE_YEARS, FIVE_SEVEN_YEARS, SEVEN_TEN_YEARS, TEN_FIFTEEN_YEARS
+  experience_level:
+  - NO_EXPERIENCE
   posted_within: ''
   page_size: '15'

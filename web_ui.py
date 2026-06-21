@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import uuid
+import io
 import yaml
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -90,6 +91,7 @@ if not log.handlers:
 
 # ── globals ──
 _pipeline_proc: Optional[subprocess.Popen] = None
+_pipeline_log_thread: Optional[threading.Thread] = None
 _pipeline_running = False
 _linkedin_login_proc: Optional[subprocess.Popen] = None
 _polyu_login_proc: Optional[subprocess.Popen] = None
@@ -100,6 +102,23 @@ _last_log_position = 0  # log file seek position for incremental push
 
 JOB_DETAILS_DIR = Path(__file__).parent / "data" / "job_details"
 JOB_DETAILS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _pipe_reader(stream: Optional[io.BufferedReader], log_path: Path):
+    """Read lines from a pipe and append to log file (runs in background thread)."""
+    if not stream:
+        return
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            for line in iter(stream.readline, b""):
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace").rstrip("\n")
+                if text:
+                    f.write(text + "\n")
+                    f.flush()
+    except Exception:
+        pass
 
 
 # ── helpers ──
@@ -705,9 +724,14 @@ async def api_run(
     try:
         _pipeline_proc = subprocess.Popen(
             cmd, cwd=str(BASE_DIR),
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         )
+        # Start background thread to pipe stdout to hunter.log
+        log_path = Path(LOG_FILE)
+        _pipeline_log_thread = threading.Thread(
+            target=_pipe_reader, args=(_pipeline_proc.stdout, log_path), daemon=True
+        )
+        _pipeline_log_thread.start()
         _pipeline_running = True
         log.info(f"Pipeline started PID={_pipeline_proc.pid}")
         return JSONResponse({"success": True, "pid": _pipeline_proc.pid})
@@ -718,7 +742,7 @@ async def api_run(
 
 @app.post("/api/stop")
 async def api_stop():
-    global _pipeline_proc, _pipeline_running
+    global _pipeline_proc, _pipeline_running, _pipeline_log_thread
     if not _pipeline_running or not _pipeline_proc:
         return JSONResponse({"error": "No pipeline running"}, status_code=400)
 
@@ -767,6 +791,7 @@ async def api_stop():
 
     _pipeline_running = False
     _pipeline_proc = None
+    _pipeline_log_thread = None
     _write_status({"status": "stopped", "phase": "stopped", "message": "Stopped by user"})
     return JSONResponse({"success": True})
 
@@ -1098,6 +1123,16 @@ select.input-sm { min-width:200px; cursor:pointer; }
 .settings-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
 .settings-panel { display:none; }
 .settings-panel.active { display:block; }
+
+/* Platform sub-tabs (inside Platform Filters panel) */
+.platform-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:12px; }
+.platform-tab { padding:7px 14px; cursor:pointer; font-size:12.5px; color:var(--muted);
+  border-bottom:2px solid transparent; transition:.15s; user-select:none; }
+.platform-tab:hover { color:var(--text); }
+.platform-tab.active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+.platform-panel { display:none; }
+.platform-panel.active { display:block; }
+
 .form-group { margin-bottom:12px; }
 .form-group label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; font-weight:500; }
 .form-group input, .form-group textarea, .form-group select { width:100%; padding:8px 10px; border:1px solid var(--border);
@@ -1300,10 +1335,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <div class="settings-tab active" onclick="switchSettingsTab('email')">📧 Email</div>
       <div class="settings-tab" onclick="switchSettingsTab('llm')">🤖 AI / LLM</div>
       <div class="settings-tab" onclick="switchSettingsTab('cv')">📄 CV</div>
-      <div class="settings-tab" onclick="switchSettingsTab('linkedin')">🔗 LinkedIn</div>
-      <div class="settings-tab" onclick="switchSettingsTab('jobsdb')">🔴 JobsDB</div>
-      <div class="settings-tab" onclick="switchSettingsTab('efc')">🟢 eFC</div>
-      <div class="settings-tab" onclick="switchSettingsTab('indeed')">🔍 Indeed</div>
+      <div class="settings-tab" onclick="switchSettingsTab('platform')">🔍 Platform Filters</div>
       <div class="settings-tab" onclick="switchSettingsTab('advanced')">🔧 Advanced</div>
     </div>
 
@@ -1374,16 +1406,27 @@ select.input-sm { min-width:200px; cursor:pointer; }
       </div>
     </div>
 
+    <!-- Tab: Platform Filters (sub-tabs for each platform) -->
+    <div class="settings-panel" id="settingsPanel-platform">
+      <div class="platform-tabs">
+        <div class="platform-tab active" onclick="switchPlatformTab('linkedin')">🔗 LinkedIn</div>
+        <div class="platform-tab" onclick="switchPlatformTab('jobsdb')">🔴 JobsDB</div>
+        <div class="platform-tab" onclick="switchPlatformTab('efc')">🟢 eFC</div>
+        <div class="platform-tab" onclick="switchPlatformTab('indeed')">🔍 Indeed</div>
+      </div>
+      <div class="platform-panels">
     <!-- Tab: LinkedIn Filters -->
-    <div class="settings-panel" id="settingsPanel-linkedin">
+    <div class="platform-panel active" id="platformPanel-linkedin">
       <div class="form-row">
         <div class="form-group">
           <label>Experience Level (multi-select)</label>
-          <div style="display:flex;gap:8px;flex-wrap:nowrap;padding-top:4px">
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="1" id="fld_li_exp_1"> Entry</label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="2" id="fld_li_exp_2"> Associate</label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="3" id="fld_li_exp_3"> Mid-Senior</label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="6" id="fld_li_exp_6"> Internship</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:4px">
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="1" id="fld_li_exp_1"> 實習</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="2" id="fld_li_exp_2"> 初級</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="3" id="fld_li_exp_3"> 助理</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="4" id="fld_li_exp_4"> 中高級</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="5" id="fld_li_exp_5"> 總監/主管</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap"><input type="checkbox" value="6" id="fld_li_exp_6"> 高管人員</label>
           </div>
           <div class="form-hint">Leave all unchecked = no filter (shows all levels)</div>
         </div>
@@ -1434,7 +1477,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
     </div>
 
     <!-- Tab: JobsDB Filters -->
-    <div class="settings-panel" id="settingsPanel-jobsdb">
+    <div class="platform-panel" id="platformPanel-jobsdb">
       <div class="form-group">
         <label>Category</label>
         <input type="text" id="fld_jd_category" placeholder="information-communication-technology">
@@ -1475,7 +1518,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
     </div>
 
     <!-- Tab: eFC Filters -->
-    <div class="settings-panel" id="settingsPanel-efc">
+    <div class="platform-panel" id="platformPanel-efc">
       <div class="form-group">
         <label>Experience Level (multi-select)</label>
         <div style="display:flex;gap:8px;flex-wrap:nowrap;padding-top:4px">
@@ -1514,7 +1557,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
     </div>
 
     <!-- Tab: Indeed Filters -->
-    <div class="settings-panel" id="settingsPanel-indeed">
+    <div class="platform-panel" id="platformPanel-indeed">
       <div class="form-row">
         <div class="form-group">
           <label>Posted Within (fromage)</label>
@@ -1527,14 +1570,18 @@ select.input-sm { min-width:200px; cursor:pointer; }
           </select>
         </div>
         <div class="form-group">
-          <label>Education Level</label>
-          <select id="fld_id_education">
-            <option value="bachelor">Bachelor's (學士學位)</option>
-            <option value="master">Master's (碩士學位)</option>
-            <option value="phd">PhD (博士學位)</option>
-            <option value="diploma">Diploma (高級文憑)</option>
-          </select>
-          <div class="form-hint">⚠️ Education filter uses encrypted URL param — only default options available</div>
+          <label>Education Level (multi-select)</label>
+          <div style="display:flex;gap:8px;flex-wrap:nowrap;padding-top:4px">
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="HFDVW" id="fld_id_edu_HFDVW"> Bachelor (學士)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="EXSNN" id="fld_id_edu_EXSNN"> Master (碩士)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="6QC5F" id="fld_id_edu_6QC5F"> PhD (博士)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="MR89S" id="fld_id_edu_MR89S"> Diploma (高級文憑)</label>
+          </div>
+          <div class="form-hint">⚠️ Indeed education uses encrypted URL param (sc=)</div>
         </div>
       </div>
       <div class="form-row">
@@ -1554,6 +1601,9 @@ select.input-sm { min-width:200px; cursor:pointer; }
         ⚠️ Indeed URL params are partially encrypted (sc=). Date range and location work via URL. Education/salary filters use encrypted params.
       </div>
     </div>
+
+    </div>
+  </div>
 
     <!-- Tab: Advanced -->
     <div class="settings-panel" id="settingsPanel-advanced">
@@ -2319,7 +2369,19 @@ function switchSettingsTab(tab) {
   document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
   event.target.classList.add('active');
-  document.getElementById('settingsPanel-' + tab).classList.add('active');
+  const panel = document.getElementById('settingsPanel-' + tab);
+  if (panel) panel.classList.add('active');
+  if (tab === 'email') setTimeout(setupEmailToggles, 50);
+  if (tab === 'platform') switchPlatformTab('linkedin');
+}
+
+function switchPlatformTab(platform) {
+  document.querySelectorAll('.platform-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.platform-panel').forEach(p => p.classList.remove('active'));
+  const clicked = document.querySelector('.platform-tab[onclick*="' + platform + '"]');
+  if (clicked) clicked.classList.add('active');
+  const panel = document.getElementById('platformPanel-' + platform);
+  if (panel) panel.classList.add('active');
 }
 
 function togglePw(fieldId, el) {
@@ -2371,7 +2433,7 @@ async function openSettings() {
       
       // Experience Level: check checkboxes
       const expLevels = Array.isArray(li.experience_level) ? li.experience_level : [];
-      ['1','2','3','6'].forEach(v => {
+      ['1','2','3','4','5','6'].forEach(v => {
         const cb = document.getElementById('fld_li_exp_' + v);
         if (cb) cb.checked = expLevels.includes(v) || expLevels.includes(parseInt(v));
       });
@@ -2508,8 +2570,12 @@ async function openSettings() {
     // Parse Indeed filters from YAML (or parsed_config)
     if (d.parsed_config && d.parsed_config.indeed_filters) {
       const id = d.parsed_config.indeed_filters;
+      // Indeed education: check checkboxes from list
+      (id.education || []).forEach(v => {
+        const el = document.getElementById('fld_id_edu_' + v);
+        if (el) el.checked = true;
+      });
       document.getElementById('fld_id_date_range').value = id.date_range || '';
-      document.getElementById('fld_id_education').value = id.education || 'bachelor';
       document.getElementById('fld_id_sort_by').value = id.sort_by || 'date';
       document.getElementById('fld_id_radius').value = (id.radius || '50').toString();
     } else {
@@ -2519,7 +2585,17 @@ async function openSettings() {
         const idYaml = idSection[0];
         const getId = (key, def) => { const m = idYaml.match(new RegExp('^\\s*' + key + ':\\s*["\']?(.*?)["\']?\\s*$', 'm')); return m ? m[1].trim() : def; };
         document.getElementById('fld_id_date_range').value = getId('date_range', '');
-        document.getElementById('fld_id_education').value = getId('education', 'bachelor');
+        // Parse education (may be list format like [HFDVW] or plain string)
+        const eduRaw = getId('education', '[]');
+        let eduList = [];
+        try { eduList = JSON.parse(eduRaw); } catch(e) {
+          if (eduRaw.startsWith('[')) {
+            eduList = eduRaw.replace(/^\[|\]$/g,'').split(',').map(s=>s.trim()).filter(Boolean);
+          } else if (eduRaw) {
+            eduList = [eduRaw];
+          }
+        }
+        eduList.forEach(v => { const el = document.getElementById('fld_id_edu_'+v); if(el) el.checked=true; });
         document.getElementById('fld_id_sort_by').value = getId('sort_by', 'date');
         document.getElementById('fld_id_radius').value = getId('radius', '50');
       }
@@ -2553,7 +2629,7 @@ async function saveSettings() {
     if (cvPath) settings['cv_pdf_path'] = cvPath;
 
     // linkedin_filters
-    const liExpLevels = ['1','2','3','6'].filter(v => {
+    const liExpLevels = ['1','2','3','4','5','6'].filter(v => {
       const cb = document.getElementById('fld_li_exp_' + v);
       return cb && cb.checked;
     });
@@ -2602,9 +2678,13 @@ async function saveSettings() {
     };
 
     // indeed_filters
+    const idEducation = ['HFDVW','EXSNN','6QC5F','MR89S'].filter(v => {
+      const cb = document.getElementById('fld_id_edu_' + v);
+      return cb && cb.checked;
+    });
     settings['indeed_filters'] = {
       'date_range': document.getElementById('fld_id_date_range').value,
-      'education': document.getElementById('fld_id_education').value || 'bachelor',
+      'education': idEducation,
       'job_type': '',  // encrypted, not configurable via UI
       'sort_by': document.getElementById('fld_id_sort_by').value,
       'radius': document.getElementById('fld_id_radius').value.trim() || '50',
@@ -2625,8 +2705,8 @@ async function saveSettings() {
     envMap['LLM_MODEL'] = document.getElementById('fld_llm_model').value.trim();
     let newEnv = '';
     const envOrder = ['EMAIL', 'EMAIL_PASSWORD', 'LLM_PROVIDER', 'LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL'];
-    envOrder.forEach(k => { if (envMap[k] !== undefined) newEnv += k + '=' + envMap[k] + + '\n'; });
-    Object.keys(envMap).forEach(k => { if (!envOrder.includes(k)) newEnv += k + '=' + envMap[k] + + '\n'; });
+    envOrder.forEach(k => { if (envMap[k] !== undefined) newEnv += k + '=' + envMap[k] + '\n'; });
+    Object.keys(envMap).forEach(k => { if (!envOrder.includes(k)) newEnv += k + '=' + envMap[k] + '\n'; });
 
     // Send as JSON (form tabs) or raw YAML (advanced tab)
     let res;

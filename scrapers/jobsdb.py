@@ -78,7 +78,8 @@ def _check_page_6(page, base_url: str) -> bool:
     Returns True if cards found (page 6 exists).
     """
     try:
-        url = base_url + "?page=6"
+        sep = "&" if "?" in base_url else "?"
+        url = base_url + sep + "page=6"
         log.info(f"[JobsDB]   Probing page 6: {url}")
         page.goto(url, wait_until="domcontentloaded", timeout=15_000)
         page.wait_for_timeout(3000)
@@ -117,11 +118,11 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int =
             wt_str = ""
             log.info(f"[JobsDB]   {kw}: work_type=all")
 
-        base_url = f"https://hk.jobsdb.com/{kw_slug}-jobs-in-{category}"
+        base_url = f"https://hk.jobsdb.com/{kw_slug}-jobs-in-{category}/in-hong-kong"
         if wt_str:
-            base_url += f"/in-undefined?worktype={wt_str}"  # JobsDB uses /in-undefined when work type is specified
+            base_url += f"?worktype={wt_str}"  # JobsDB uses /in-hong-kong for location
         else:
-            base_url += "/in-undefined"
+            base_url += ""
 
         # Build query params
         params = []
@@ -139,9 +140,12 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int =
             params.append(f"daterange={config.jd_daterange}")
             log.info(f"[JobsDB]   {kw}: daterange={config.jd_daterange}")
 
-        scrape_url = base_url
+        # Build final URL (handle case where base_url already has query string)
         if params:
-            scrape_url = base_url + "?" + "&".join(params)
+            sep = "&" if "?" in base_url else "?"
+            scrape_url = base_url + sep + "&".join(params)
+        else:
+            scrape_url = base_url
         elif not config.jd_daterange:
             # No daterange configured — probe page 6 to decide
             has_page_6 = _check_page_6(page, base_url)
