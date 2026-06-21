@@ -1056,7 +1056,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
 .log-header { display:flex; align-items:center; justify-content:space-between; padding:8px 12px;
   border-bottom:1px solid var(--border); font-size:13px; font-weight:600; }
 .log-box { background:#1e293b; color:#e2e8f0; padding:10px 12px; font-family:"SF Mono","Cascadia Code",monospace;
-  font-size:12px; line-height:1.6; max-height:220px; overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
+  font-size:12px; line-height:1.6; max-height:220px; overflow-y:auto; white-space:pre-wrap; word-wrap:break-word; }
 .log-box:empty::before { content:"(Waiting for log...)"; color:#64748b; }
 
 /* Toast */
