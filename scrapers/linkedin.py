@@ -16,12 +16,16 @@ log = logging.getLogger("hunter")
 
 # ── Dynamic card selector (detected at runtime) ──
 # Try these selectors in order, use the first one that matches
+# Based on LinkedIn diagnostic (2026-06): New structure uses
+#   UL.jobs-search__results-list > div.base-search-card[data-entity-urn]
+# IMPORTANT: Only capture search results, NOT recommended cards in sidebar
 _CANDIDATE_SELECTORS = [
-    "li.base-search-card",           # New LinkedIn structure (2024+)
-    "li[data-occludable-job-id]",   # Old LinkedIn structure (li tag)
-    "[data-occludable-job-id]",     # Generic (any tag, SPA may use div)
-    "div.base-search-card",          # Alternative structure
-    "[class*='job-card']",          # Generic job card fallback
+    "ul.jobs-search__results-list div.base-search-card[data-entity-urn]",  # Precise: only search results
+    "ul.jobs-search__results-list li[data-occludable-job-id]",           # Old structure, search results only
+    "div.base-search-card[data-entity-urn]",  # New structure (may include recommended)
+    "li[data-occludable-job-id]",            # Old LinkedIn structure
+    "[data-occludable-job-id]",              # Generic old structure
+    "[class*='job-card']",                   # Generic fallback
 ]
 _working_selector = None  # Will be detected at runtime
 
@@ -71,13 +75,22 @@ def _extract_card_data(page) -> list[dict]:
     
     for idx, card in enumerate(cards):
         try:
-            # Get job ID
-            job_id = (
-                card.get_attribute("data-occludable-job-id") or
-                card.get_attribute("data-job-id") or
-                card.get_attribute("id") or
-                str(idx)
-            )
+            # Get job ID from data-entity-urn (new structure) or fallback to old attributes
+            job_id = ""
+            
+            # New LinkedIn structure: data-entity-urn="urn:li:jobPosting:XXXX"
+            entity_urn = card.get_attribute("data-entity-urn")
+            if entity_urn and "jobPosting:" in entity_urn:
+                job_id = entity_urn.split("jobPosting:")[-1]
+            
+            # Fallback to old attributes
+            if not job_id:
+                job_id = (
+                    card.get_attribute("data-occludable-job-id") or
+                    card.get_attribute("data-job-id") or
+                    card.get_attribute("id") or
+                    str(idx)
+                )
             
             # Extract title
             title = ""
@@ -224,51 +237,30 @@ def _scrape_keyword(page, kw: str) -> list:
         log.info(f"[LinkedIn] Searching: {kw} → 0 jobs")
         return []
 
-    # Paginated page loading (start=0, 25, 50...)
-    # More reliable than scrolling: LinkedIn virtual list only lazy-loads
-    # cards when the viewport passes through intermediate positions.
+    # Infinite scroll to load all results (URL pagination with &start=N doesn't work reliably)
+    # Approach: scroll down gradually, let LinkedIn's lazy-load render new cards
     jobs_for_kw: list = []
     seen_ids: set[str] = set()
-    base_url = page.url.split("&start=")[0]  # strip any existing start param
-    page_num = 0
-    max_pages = 10  # safety cap (10 pages × 25 = 250 jobs max per keyword)
-
-    while page_num < max_pages:
-        start = page_num * 25
-        page_url = f"{base_url}&start={start}" if page_num > 0 else base_url
-
-        if page_num > 0:
-            try:
-                page.goto(page_url, wait_until="domcontentloaded", timeout=30_000)
-                page.wait_for_selector(wait_selectors, timeout=15_000, state="attached")
-                # Re-detect selector (may change between pages)
-                _working_selector = _detect_selector(page)
-            except Exception:
-                log.info(f"[LinkedIn]   Page {page_num + 1} load failed, stopping")
-                break
-
+    no_new_count = 0  # consecutive scrolls with no new jobs
+    max_no_new = 5  # stop after 5 consecutive scrolls with no new jobs (more lenient)
+    scroll_count = 0
+    max_scrolls = 50  # safety cap to prevent infinite loop
+    
+    log.info(f"[LinkedIn]   Starting infinite scroll for '{kw}'...")
+    
+    while no_new_count < max_no_new and scroll_count < max_scrolls:
+        scroll_count += 1
+        
         # Check stop flag
         try:
             check_stop()
         except InterruptedError:
             log.info('[LinkedIn] Stop requested, exiting...')
             break
-
-        # Extract cards from this page
+        
+        # Extract cards from current page
         cards = _extract_card_data(page)
-        if not cards and page_num == 0:
-            # Unknown failure on first page (shouldn't happen after wait_for_selector)
-            log.info(f"[LinkedIn]   No job cards found for '{kw}'")
-            debug_dir = Path(__file__).parent.parent / "debug"
-            debug_dir.mkdir(exist_ok=True)
-            html_path = debug_dir / f"linkedin_debug_{kw.replace(' ', '_')}.html"
-            try:
-                html_path.write_text(page.content(), encoding="utf-8")
-                log.info(f"[LinkedIn]   Debug HTML saved: {html_path.name}")
-            except Exception:
-                pass
-            break
-
+        
         # Add new jobs (dedup by id)
         new_on_page = 0
         for card in cards:
@@ -286,18 +278,35 @@ def _scrape_keyword(page, kw: str) -> list:
                     card["title"], card["company"], "Hong Kong", job_url, "LinkedIn"
                 ))
                 new_on_page += 1
-
-        log.info(f"[LinkedIn]   Page {page_num + 1}: {new_on_page} new jobs (total: {len(jobs_for_kw)})")
-
-        # Stop conditions (skip on page 0 — virtual list may under-render first load):
-        # - Page 1+ returned < 25 cards (last page)
-        # - Page 1+ had 0 new cards (all duplicates)
-        if page_num > 0:
-            if len(cards) < 25 or new_on_page == 0:
+        
+        if new_on_page > 0:
+            log.info(f"[LinkedIn]   Scroll #{scroll_count}: {new_on_page} new jobs (total: {len(jobs_for_kw)})")
+            no_new_count = 0  # reset counter
+        else:
+            no_new_count += 1
+            log.info(f"[LinkedIn]   Scroll #{scroll_count}: 0 new jobs (no_new={no_new_count}/{max_no_new})")
+            if no_new_count >= max_no_new:
+                log.info(f"[LinkedIn]   No new jobs after {max_no_new} scrolls, stopping")
                 break
-
-        page_num += 1
-
+        
+        # Scroll down to trigger lazy-load
+        try:
+            # Scroll to bottom of page
+            page.evaluate("""() => {
+                window.scrollTo(0, document.body.scrollHeight);
+            }""")
+            page.wait_for_timeout(5000)  # Wait 5s for new cards to render (was 2000)
+            
+            # Also try clicking "Load more" button if it exists
+            load_more = page.query_selector('button[aria-label*="Load more"], button:has-text("Load more"), [class*="load-more"]')
+            if load_more:
+                log.info(f"[LinkedIn]   Found 'Load more' button, clicking...")
+                load_more.click()
+                page.wait_for_timeout(2000)
+        except Exception as e:
+            log.debug(f"[LinkedIn]   Scroll error: {e}")
+            break
+    
     log.info(f"[LinkedIn] Searching: {kw} → {len(jobs_for_kw)} jobs")
     return jobs_for_kw
 
