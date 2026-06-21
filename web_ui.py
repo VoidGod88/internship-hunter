@@ -1097,8 +1097,10 @@ select.input-sm { min-width:200px; cursor:pointer; }
         <option value="">— Select a job to view details —</option>
       </select>
     </div>
-    <div style="display:flex;gap:6px;align-items:flex-end;margin-left:8px">
+    <div style="display:flex;gap:6px;align-items:flex-end;margin-left:8px;flex-wrap:wrap">
       <button class="btn btn-outline btn-sm" id="btnMatchOverview" onclick="toggleMatchOverview()" style="white-space:nowrap">🤖 Match Overview</button>
+      <button class="btn btn-outline btn-sm" id="btnAnalyzeAll" onclick="doAnalyzeAll()" title="Batch LLM match for all unevaluated jobs" style="white-space:nowrap">🤖 Analyze All</button>
+      <span id="analyzeAllProgress" style="font-size:12px;color:var(--muted);display:none;white-space:nowrap"></span>
       <button class="btn btn-outline btn-sm" onclick="refreshJobs()" style="white-space:nowrap" title="Reload job list from server">🔄 Refresh</button>
     </div>
     <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
@@ -1218,10 +1220,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <input type="file" id="cvFileInput" accept=".pdf" style="display:none" onchange="uploadCV(this)">
       <button class="btn btn-outline" onclick="linkedinLogin()" title="Open browser to manually log in to LinkedIn (press Enter in terminal to save cookies)">🔐 LinkedIn Login</button>
       <button class="btn btn-outline" onclick="polyuLogin()" title="Open browser to manually log in to PolyU Job Board (saves cookies)">🏫 PolyU Login</button>
-    </div>
-    <div class="control-group" style="align-items:center;gap:10px">
-      <button class="btn btn-orange" id="btnAnalyzeAll" onclick="doAnalyzeAll()" title="Batch LLM match for all unevaluated jobs">🤖 Analyze All</button>
-      <span id="analyzeAllProgress" style="font-size:12px;color:var(--muted);display:none"></span>
     </div>
   </div>
 
