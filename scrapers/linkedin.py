@@ -18,9 +18,10 @@ log = logging.getLogger("hunter")
 # Try these selectors in order, use the first one that matches
 _CANDIDATE_SELECTORS = [
     "li.base-search-card",           # New LinkedIn structure (2024+)
-    "li[data-occludable-job-id]",   # Old LinkedIn structure
+    "li[data-occludable-job-id]",   # Old LinkedIn structure (li tag)
+    "[data-occludable-job-id]",     # Generic (any tag, SPA may use div)
     "div.base-search-card",          # Alternative structure
-    "[class*='job-card']",          # Generic job card
+    "[class*='job-card']",          # Generic job card fallback
 ]
 _working_selector = None  # Will be detected at runtime
 
@@ -31,16 +32,22 @@ SCROLL_MAX_ROUNDS = 200         # hard cap so a misbehaving page can't loop fore
 
 
 def _detect_selector(page) -> str:
-    """Detect the correct job card selector for the current LinkedIn page."""
-    for sel in _CANDIDATE_SELECTORS:
-        try:
-            count = page.locator(sel).count()
-            if count > 0:
-                log.info(f"[LinkedIn]   Detected job card selector: '{sel}' ({count} cards)")
-                return sel
-        except Exception:
-            continue
-    log.warning("[LinkedIn]   No job card selector detected, using fallback")
+    """Detect the correct job card selector for the current LinkedIn page.
+    Retries up to 3 times (2s apart) — LinkedIn SPA may not have rendered
+    job cards immediately after the container appears."""
+    for attempt in range(3):
+        for sel in _CANDIDATE_SELECTORS:
+            try:
+                count = page.locator(sel).count()
+                if count > 0:
+                    log.info(f"[LinkedIn]   Detected job card selector: '{sel}' ({count} cards)")
+                    return sel
+            except Exception:
+                continue
+        if attempt < 2:
+            log.info(f"[LinkedIn]   No cards yet, retrying ({attempt+2}/3)...")
+            page.wait_for_timeout(2000)
+    log.warning("[LinkedIn]   No job card selector detected after 3 retries, using fallback")
     return _CANDIDATE_SELECTORS[0]  # fallback
 
 
@@ -181,24 +188,30 @@ def _scrape_keyword(page, kw: str) -> list:
             pass
         return []
 
-    # Wait for job results container to load (up to 10s)
+    # Wait for job card elements to render (not just the container skeleton)
     try:
-        # Try multiple selectors for job cards
+        # Prefer waiting for actual job cards — LinkedIn SPA may show
+        # the shell ([class*='jobs-search']) before cards are injected
         wait_selectors = ", ".join([
-            "li.base-search-card",
             "li[data-occludable-job-id]",
-            "[class*='job-card']",
-            "[class*='jobs-search']",
-            ".base-search-card"
+            "[data-occludable-job-id]",
+            "li.base-search-card",
+            ".base-search-card",
         ])
-        page.wait_for_selector(wait_selectors, timeout=10_000)
-        log.info(f"[LinkedIn]   Page loaded (job container found)")
+        page.wait_for_selector(wait_selectors, timeout=15_000)
+        log.info(f"[LinkedIn]   Page loaded (job cards found)")
         
-        # Detect the correct selector
+        # Detect the correct selector (with retry)
         _working_selector = _detect_selector(page)
     except Exception:
-        log.info(f"[LinkedIn]   No job container found within 10s, will retry after scroll...")
-        page.wait_for_timeout(5000)
+        log.info(f"[LinkedIn]   No job cards found within 15s, trying generic container...")
+        try:
+            page.wait_for_selector("[class*='jobs-search'], [class*='results']", timeout=5_000)
+            log.info(f"[LinkedIn]   Generic container found, retrying card detection...")
+            page.wait_for_timeout(3000)
+            _working_selector = _detect_selector(page)
+        except Exception:
+            log.info(f"[LinkedIn]   No results container found")
 
     # Infinite scroll to load all jobs
     jobs_for_kw: list = []
