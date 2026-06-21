@@ -22,7 +22,7 @@ Scrape Jobs → WIE Filter → AI Match → Analyze Detail → Cover Letter → 
 | 🔍 **Scrape** | Pulls jobs from 5 platforms simultaneously |
 | 🎯 **WIE Filter** | Strict WIE filter per PolyU COMP FAQ — ineligible jobs are **discarded**, not saved |
 | 🤖 **Analyze All** | Batch LLM evaluation: one-click match ALL jobs against your CV, skip already-matched |
-| 📊 **Match Overview** | Table view: ✅/❌ match status, scores, and mismatch reasons for all jobs at a glance |
+| 📊 **Match Overview** | Table view: ✅/❌/⏳ status, scores, and mismatch reasons for all jobs at a glance |
 | 📑 **AI Analyze** | Per-job detail: fetches structured fields (description, requirements, salary...) via LLM, cached to disk |
 | ✍️ **Cover Letter** | AI-generated personalized cover letter (DeepSeek / OpenAI), reuses cached job detail |
 | ✉️ **Apply** | Review, edit, and send applications via Gmail SMTP |
@@ -49,6 +49,7 @@ Scrape Jobs → WIE Filter → AI Match → Analyze Detail → Cover Letter → 
 - **📝 Live Log** — Real-time log viewer in the UI during pipeline execution
 - **🚦 Progress Bar** — Visual pipeline phase indicator (Init → Scraping → Processing → Done)
 - **🔒 Security First** — `.env` and `config.yaml` are gitignored; never commit real credentials
+- **🎛️ Multi-Select Filters** — LinkedIn (experience level, work type), JobsDB, Indeed, eFC all support checkbox-based multi-select filtering
 
 ---
 
@@ -78,10 +79,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 python -m playwright install chromium
 
-# 3. Launch the web UI
+# 3. Set up config (copy examples)
+cp .env.example .env
+cp config.example.yaml config.yaml
+
+# 4. Launch the web UI
 python web_ui.py
 # Open http://localhost:7861 in your browser
-# On first run, .env and config.yaml will be auto-created with default values
 # Fill in credentials in the ⚙️ Settings panel
 ```
 
@@ -91,7 +95,7 @@ python web_ui.py
 
 ### `.env` — Credentials
 
-Fill in via the **⚙️ Settings** panel in the web UI, or create a `.env` file manually:
+Fill in via the **⚙️ Settings** panel in the web UI, or edit `.env` manually:
 
 ```env
 EMAIL=your_email@gmail.com
@@ -103,11 +107,11 @@ LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-chat
 ```
 
-> **Note:** `.env` is gitignored. The repo ships without real credentials.
+> **Note:** `.env` is gitignored. The repo ships `.env.example` without real credentials.
 
 ### `config.yaml` — Settings
 
-All settings editable in the **⚙️ Settings** panel. Defaults are pre-filled — adjust keywords, scrapers, and filters to your needs.
+All settings editable in the **⚙️ Settings** panel. Copy `config.example.yaml` to `config.yaml` and adjust:
 
 ```yaml
 cv_pdf_path: path/to/your/cv.pdf
@@ -206,21 +210,21 @@ internship-hunter/
 ├── fetch_job_detail.py     # Re-open job URL, extract full detail via LLM (with cache)
 ├── linkedin_login.py       # Standalone script: manual LinkedIn login, saves cookies
 ├── stealth.py              # Playwright stealth utils (anti-detection)
-├── manual_companies.json   # Custom company list for manual scraping
+├── polyu_login.py          # PolyU SSO login helper (for reference)
 │
 ├── scrapers/               # Job board scrapers
 │   ├── __init__.py
 │   ├── base.py             # Base scraper with Playwright page init + cookie loading
-│   ├── linkedin.py         # LinkedIn job search (uses saved cookies)
-│   ├── jobsdb.py           # JobsDB (Hong Kong)
+│   ├── linkedin.py         # LinkedIn job search (uses saved cookies, multi-select filters)
+│   ├── jobsdb.py           # JobsDB (Hong Kong, multi-select filters)
 │   ├── indeed.py           # Indeed HK (Cloudflare retry + keyword filtering)
-│   ├── efc.py              # eFinancialCareers (infinite scroll with smart stop)
+│   ├── efc.py              # eFinancialCareers (infinite scroll with smart stop, multi-select)
 │   └── manual.py           # Manual company list scraper
 │
 ├── cookies/                 # Saved browser cookies (gitignored)
 ├── data/                    # Job detail JSON cache + SQLite DB (gitignored)
-├── .env                     # Credentials (gitignored)
-├── config.yaml              # Settings (gitignored)
+├── .env.example             # Example env file (committed)
+├── config.example.yaml      # Example config file (committed)
 ├── requirements.txt         # Python dependencies
 └── README.md
 ```
@@ -297,6 +301,19 @@ LinkedIn has strong Cloudflare protection that blocks automated scrapers. This p
 ---
 
 ## 📝 Changelog
+
+### 2026-06-22
+
+#### Added
+- **Multi-Select Filters** — LinkedIn (experience level, work type), JobsDB, Indeed, eFC now support checkbox-based multi-select filtering
+- **Example Config Files** — Added `.env.example` and `config.example.yaml` for easier setup
+- **Improved UI Layout** — Checkbox filters no longer wrap; tighter spacing
+
+#### Fixed
+- **`run.bat` Log Piping** — Fixed Windows log display issue with `tail` and subprocess output piping
+- **JobsDB URL Handling** — Fixed `in-undefined` URL parameter issue
+- **Indeed Education Filter** — Added multi-select support for education level filtering
+- **Web UI Config Parser** — `api_get_config` now parses YAML inline correctly
 
 ### 2026-06-21
 
