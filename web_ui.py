@@ -602,6 +602,7 @@ async def api_fetch_detail(job_id: int):
         # Save structured result to file for frontend display
         if detail.get("structured"):
             try:
+                JOB_DETAILS_DIR.mkdir(parents=True, exist_ok=True)
                 (JOB_DETAILS_DIR / f"{job_id}.json").write_text(
                     json.dumps(detail["structured"], ensure_ascii=False, indent=2),
                     encoding="utf-8",
