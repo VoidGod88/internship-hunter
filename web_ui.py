@@ -845,6 +845,13 @@ async def api_get_config():
     yaml_path = BASE_DIR / "config.yaml"
     if yaml_path.exists():
         yaml_text = yaml_path.read_text(encoding="utf-8")
+
+    # Parse YAML for structured access (list format support)
+    try:
+        parsed_config = yaml.safe_load(yaml_text) or {}
+    except Exception:
+        parsed_config = {}
+
     # Check if critical config is missing
     config_warnings = []
     if not cfg.email or "your_email" in cfg.email:
@@ -853,11 +860,12 @@ async def api_get_config():
         config_warnings.append("LLM API key not configured")
     if not cfg.cv_pdf_path or "path/to" in cfg.cv_pdf_path or (cfg.cv_pdf_path and not os.path.exists(cfg.cv_pdf_path)):
         config_warnings.append("CV PDF not found — please upload or set cv_pdf_path")
+
     return JSONResponse({
         "env": env_text,
         "config_yaml": yaml_text,
-        "parsed_config": _yaml_config,
-        "warnings": config_warnings
+        "parsed_config": parsed_config,
+        "warnings": config_warnings,
     })
 
 
