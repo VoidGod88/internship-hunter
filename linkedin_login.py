@@ -64,13 +64,29 @@ def main():
         # Go to LinkedIn login page
         # Note: networkidle will time out because LinkedIn has persistent analytics/ws connections
         page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30_000)
-        # Wait for social login buttons (Google OAuth iframe loads asynchronously)
-        time.sleep(5)
         print(f"  [Opened] Browser opened: {page.url}")
+
+        # Google/Apple/Microsoft login buttons are loaded inside async iframes.
+        # Wait up to 15s for the Google sign-in iframe to appear.
+        google_loaded = False
+        try:
+            page.wait_for_selector(
+                'iframe[src*="accounts.google.com"], div#credential_picker_container iframe',
+                timeout=15_000
+            )
+            google_loaded = True
+            print("  [OK] Google sign-in button detected")
+        except Exception:
+            log.warning("Google sign-in iframe did not appear within 15s")
+            print("  [Note] Google sign-in button not detected (iframe may be slow/blocked)")
+
+        # Extra wait for other social buttons (Apple, Microsoft)
+        time.sleep(3)
         print()
         print("  >>> Please log in to LinkedIn in the browser window <<<")
-        print("  Google/Apple/Microsoft login buttons are BELOW the email form")
-        print("  If not visible, try scrolling down or use email+password")
+        if not google_loaded:
+            print("  Google login button may not be visible — use email+password instead")
+        print("  Social login buttons (Google/Apple/Microsoft) are BELOW the email form")
         print()
         print("  " + "-" * 56)
 
