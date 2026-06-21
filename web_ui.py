@@ -959,7 +959,7 @@ body { font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-
 /* Main area: detail panel — auto-height, don't stretch to fill screen */
 .main-area { display:flex; gap:12px; margin-bottom:12px; }
 .detail-panel { flex:1; background:var(--card); border-radius:var(--radius); border:1px solid var(--border);
-  padding:16px; overflow-y:auto; display:flex; flex-direction:column; min-height:200px; max-height:45vh; }
+  padding:16px; overflow-y:auto; display:flex; flex-direction:column; height:45vh; }
 .detail-panel h2 { font-size:16px; margin-bottom:4px; }
 .detail-meta { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 12px; font-size:13px; color:var(--muted); }
 .detail-section { margin-bottom:14px; }
@@ -1053,7 +1053,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
 
 /* Empty state */
 .empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center;
-  min-height:200px; color:var(--muted); font-size:14px; gap:8px; }
+  flex:1; color:var(--muted); font-size:14px; gap:8px; }
 .empty-state .icon { font-size:40px; }
 
 @media (max-width:900px) {
