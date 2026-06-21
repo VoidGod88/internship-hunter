@@ -1053,7 +1053,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
 
 /* Empty state */
 .empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center;
-  flex:1; color:var(--muted); font-size:14px; gap:8px; }
+  min-height:200px; color:var(--muted); font-size:14px; gap:8px; }
 .empty-state .icon { font-size:40px; }
 
 @media (max-width:900px) {
