@@ -772,21 +772,69 @@ async def api_stop():
 
 
 @app.post("/api/settings")
-async def api_save_settings(data: dict):
+async def api_save_settings(request: Request):
     try:
-        raw = data.get("config_yaml", "")
-        env_text = data.get("env", "")
-        if raw:
-            yaml_path = BASE_DIR / "config.yaml"
+        content_type = request.headers.get("content-type", "")
+        yaml_path = BASE_DIR / "config.yaml"
+
+        if "application/json" in content_type:
+            # New: receive structured JSON, properly update config.yaml
+            data = await request.json()
+            env_text = data.get("env", "")
+            settings = data.get("settings", {})
+
+            # Read existing config
+            if yaml_path.exists():
+                import yaml
+                with open(yaml_path, encoding="utf-8") as f:
+                    config = yaml.safe_load(f) or {}
+            else:
+                config = {}
+
+            # Update only provided fields (deep merge for dicts)
+            for key, value in settings.items():
+                if isinstance(value, dict) and isinstance(config.get(key), dict):
+                    config[key].update(value)
+                else:
+                    config[key] = value
+
+            # Write back with clean YAML
+            import io
+            stream = io.StringIO()
+            yaml.dump(config, stream, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            yaml_text = stream.getvalue()
+            # Clean up trailing spaces from yaml.dump
+            yaml_text = "
+".join(line.rstrip() for line in yaml_text.splitlines())
+            if not yaml_text.endswith("
+"):
+                yaml_text += "
+"
             with open(yaml_path, "w", encoding="utf-8") as f:
-                f.write(raw)
+                f.write(yaml_text)
+
+        else:
+            # Legacy: raw YAML string (from advanced tab)
+            form = await request.form()
+            raw = form.get("config_yaml", "")
+            env_text = form.get("env", "")
+            if raw:
+                with open(yaml_path, "w", encoding="utf-8") as f:
+                    f.write(raw)
+
+        # Write .env
+        if "application/json" in content_type:
+            env_text = data.get("env", "")
         if env_text:
             env_path = BASE_DIR / ".env"
             with open(env_path, "w", encoding="utf-8") as f:
                 f.write(env_text)
+
         cfg.reload_inplace()
         return JSONResponse({"success": True})
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -2307,116 +2355,100 @@ async function saveSettings() {
   const msgEl = document.getElementById('settingsMsg');
   msgEl.textContent = '⏳ Saving...';
   msgEl.style.color = 'var(--muted)';
+  // Detect active tab
+  const advancedPanel = document.getElementById('settingsPanel-advanced');
+  const isAdvanced = advancedPanel && advancedPanel.classList.contains('active');
   try {
-  // Read form fields and build .env and config.yaml
-  const envMap = {};
-  // Read existing .env first
-  const envText = document.getElementById('envEditor').value;
-  envText.split('\n').forEach(line => {
-    const idx = line.indexOf('=');
-    if (idx > 0) envMap[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
-  });
-  // Override with form values
-  envMap['EMAIL'] = document.getElementById('fld_email').value.trim();
-  envMap['EMAIL_PASSWORD'] = document.getElementById('fld_email_password').value.trim();
-  envMap['LLM_PROVIDER'] = document.getElementById('fld_llm_provider').value.trim() || 'deepseek';
-  envMap['LLM_API_KEY'] = document.getElementById('fld_llm_api_key').value.trim();
-  envMap['LLM_BASE_URL'] = document.getElementById('fld_llm_base_url').value.trim();
-  envMap['LLM_MODEL'] = document.getElementById('fld_llm_model').value.trim();
+    // Build settings JSON from form fields
+    const settings = {};
 
-  // Build .env text
-  const envOrder = ['EMAIL', 'EMAIL_PASSWORD', 'LLM_PROVIDER', 'LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL'];
-  let newEnv = '';
-  envOrder.forEach(k => { if (envMap[k] !== undefined) newEnv += k + '=' + envMap[k] + '\n'; });
-  // Add any extra keys not in order
-  Object.keys(envMap).forEach(k => { if (!envOrder.includes(k)) newEnv += k + '=' + envMap[k] + '\n'; });
+    // cv_pdf_path
+    const cvPath = document.getElementById('fld_cv_pdf_path').value.trim();
+    if (cvPath) settings['cv_pdf_path'] = cvPath;
 
-  // Build config.yaml (preserve existing, update fields)
-  let yaml = document.getElementById('yamlEditor').value;
-  // Update cv_pdf_path
-  const cvPath = document.getElementById('fld_cv_pdf_path').value.trim();
-  if (cvPath) {
-    if (yaml.match(/^cv_pdf_path:/m)) {
-      yaml = yaml.replace(/^cv_pdf_path:.*$/m, 'cv_pdf_path: ' + cvPath);
+    // linkedin_filters
+    const liJobTypes = ['F','P','I','C'].filter(v => document.getElementById('fld_li_jt_' + v).checked).join(',');
+    settings['linkedin_filters'] = {
+      'experience_level': document.getElementById('fld_li_exp_level').value,
+      'job_types': liJobTypes,
+      'work_types': document.getElementById('fld_li_work_types').value,
+      'geo_id': document.getElementById('fld_li_geo_id').value.trim() || '103291313',
+      'sort_by': document.getElementById('fld_li_sort_by').value,
+      'posted_within': document.getElementById('fld_li_posted_within').value,
+    };
+
+    // jobsdb_filters
+    settings['jobsdb_filters'] = {
+      'category': document.getElementById('fld_jd_category').value.trim() || 'information-communication-technology',
+      'work_type': document.getElementById('fld_jd_work_type').value,
+      'daterange': document.getElementById('fld_jd_daterange').value,
+    };
+
+    // efc_filters
+    settings['efc_filters'] = {
+      'experience_level': document.getElementById('fld_efc_exp_level').value,
+      'posted_within': document.getElementById('fld_efc_posted_within').value,
+      'page_size': document.getElementById('fld_efc_page_size').value,
+      'sort_by': document.getElementById('fld_efc_sort_by').value,
+    };
+
+    // Build .env map
+    const envMap = {};
+    const envText = document.getElementById('envEditor').value;
+    envText.split('
+').forEach(line => {
+      const idx = line.indexOf('=');
+      if (idx > 0) envMap[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
+    });
+    envMap['EMAIL'] = document.getElementById('fld_email').value.trim();
+    envMap['EMAIL_PASSWORD'] = document.getElementById('fld_email_password').value.trim();
+    envMap['LLM_PROVIDER'] = document.getElementById('fld_llm_provider').value.trim() || 'deepseek';
+    envMap['LLM_API_KEY'] = document.getElementById('fld_llm_api_key').value.trim();
+    envMap['LLM_BASE_URL'] = document.getElementById('fld_llm_base_url').value.trim();
+    envMap['LLM_MODEL'] = document.getElementById('fld_llm_model').value.trim();
+    let newEnv = '';
+    const envOrder = ['EMAIL', 'EMAIL_PASSWORD', 'LLM_PROVIDER', 'LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL'];
+    envOrder.forEach(k => { if (envMap[k] !== undefined) newEnv += k + '=' + envMap[k] + '
+'; });
+    Object.keys(envMap).forEach(k => { if (!envOrder.includes(k)) newEnv += k + '=' + envMap[k] + '
+'; });
+
+    // Send as JSON (form tabs) or raw YAML (advanced tab)
+    let res;
+    if (isAdvanced) {
+      // Advanced tab: send raw YAML
+      const yaml = document.getElementById('yamlEditor').value;
+      const formData = new FormData();
+      formData.append('env', newEnv);
+      formData.append('config_yaml', yaml);
+      res = await fetch('/api/settings', {
+        method: 'POST',
+        body: formData,
+      });
     } else {
-      yaml = 'cv_pdf_path: ' + cvPath + '\n' + yaml;
+      // Form tabs: send JSON
+      res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({env: newEnv, settings: settings}),
+      });
     }
-  }
-
-  // Update linkedin_filters section in YAML
-  const liExpLevel = document.getElementById('fld_li_exp_level').value;
-  const liSortBy = document.getElementById('fld_li_sort_by').value;
-  const liWorkTypes = document.getElementById('fld_li_work_types').value;
-  const liGeoId = document.getElementById('fld_li_geo_id').value.trim() || '103291313';
-  const liPostedWithin = document.getElementById('fld_li_posted_within').value;
-  const liJobTypes = ['F','P','I','C'].filter(v => document.getElementById('fld_li_jt_' + v).checked).join(',');
-  const liFilterBlock =
-    "linkedin_filters:\n" +
-    "  experience_level: \"" + liExpLevel + "\"\n" +
-    "  job_types: \"" + liJobTypes + "\"\n" +
-    "  work_types: \"" + liWorkTypes + "\"\n" +
-    "  geo_id: \"" + liGeoId + "\"\n" +
-    "  sort_by: \"" + liSortBy + "\"\n" +
-    "  posted_within: \"" + liPostedWithin + "\"\n";
-  if (yaml.match(/^linkedin_filters:/m)) {
-    yaml = yaml.replace(/^linkedin_filters:[\s\S]*?(?=\n\S|\n*$)/m, liFilterBlock.trimEnd());
-  } else {
-    yaml = yaml.trimEnd() + '\n\n' + liFilterBlock;
-  }
-
-  // JobsDB filters
-  const jdCategory = document.getElementById('fld_jd_category').value.trim() || 'information-communication-technology';
-  const jdWorkType = document.getElementById('fld_jd_work_type').value;
-  const jdDaterange = document.getElementById('fld_jd_daterange').value;
-  const jdFilterBlock =
-    "jobsdb_filters:\n" +
-    "  category: \"" + jdCategory + "\"\n" +
-    "  work_type: \"" + jdWorkType + "\"\n" +
-    "  daterange: \"" + jdDaterange + "\"\n";
-  if (yaml.match(/^jobsdb_filters:/m)) {
-    yaml = yaml.replace(/^jobsdb_filters:[\s\S]*?(?=\n\S|\n*$)/m, jdFilterBlock.trimEnd());
-  } else {
-    yaml = yaml.trimEnd() + '\n\n' + jdFilterBlock;
-  }
-
-  // eFC filters
-  const efcExpLevel = document.getElementById('fld_efc_exp_level').value;
-  const efcPostedWithin = document.getElementById('fld_efc_posted_within').value;
-  const efcPageSize = document.getElementById('fld_efc_page_size').value;
-  const efcSortBy = document.getElementById('fld_efc_sort_by').value;
-  const efcFilterBlock =
-    "efc_filters:\n" +
-    "  experience_level: \"" + efcExpLevel + "\"\n" +
-    "  posted_within: \"" + efcPostedWithin + "\"\n" +
-    "  page_size: \"" + efcPageSize + "\"\n" +
-    "  sort_by: \"" + efcSortBy + "\"\n";
-  if (yaml.match(/^efc_filters:/m)) {
-    yaml = yaml.replace(/^efc_filters:[\s\S]*?(?=\n\S|\n*$)/m, efcFilterBlock.trimEnd());
-  } else {
-    yaml = yaml.trimEnd() + '\n\n' + efcFilterBlock;
-  }
-
-  // Save via API
-  const res = await fetch("/api/settings", {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({env: newEnv, config_yaml: yaml}),
-  });
-  if (res.ok) {
-    document.getElementById('settingsMsg').textContent = '✅ Saved!';
-    document.getElementById('settingsMsg').style.color = 'var(--green)';
-    setTimeout(() => closeModal('settingsModal'), 800);
-    // Refresh config status in header
-    checkConfig();
-  } else {
-    const d = await res.json();
-    document.getElementById('settingsMsg').textContent = '❌ ' + (d.error || 'Failed');
-    document.getElementById('settingsMsg').style.color = 'var(--red)';
-  }
+    if (res.ok) {
+      document.getElementById('settingsMsg').textContent = '✅ Saved!';
+      document.getElementById('settingsMsg').style.color = 'var(--green)';
+      setTimeout(() => closeModal('settingsModal'), 800);
+      checkConfig();
+    } else {
+      const d = await res.json();
+      document.getElementById('settingsMsg').textContent = '❌ ' + (d.error || 'Failed');
+      document.getElementById('settingsMsg').style.color = 'var(--red)';
+    }
   } catch(e) {
     document.getElementById('settingsMsg').textContent = '❌ Error: ' + e.message;
     document.getElementById('settingsMsg').style.color = 'var(--red)';
   }
 }
+
 
 function closeModal(id) { document.getElementById(id).classList.remove("show"); }
 
