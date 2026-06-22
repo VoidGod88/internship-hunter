@@ -156,6 +156,7 @@ class Config:
     efc_exp_level: list = field(default_factory=list)  # NO_EXPERIENCE, ONE_THREE_YEARS, etc.
     efc_posted_within: str = ""           # 1, 7, 14, 30, or empty
     efc_page_size: str = "15"             # max 50
+    efc_sort_by: str = ""                 # R (most relevant), D (most recent), etc.
 
     @classmethod
     def load(cls) -> "Config":
@@ -285,6 +286,7 @@ class Config:
                 cfg.efc_exp_level = list(exp) if exp else []
             cfg.efc_posted_within = str(efc_filters.get("posted_within", ""))
             cfg.efc_page_size = str(efc_filters.get("page_size", "15"))
+            cfg.efc_sort_by = str(efc_filters.get("sort_by", ""))
 
         return cfg
 

@@ -300,10 +300,9 @@ def run_scrapers(
         except Exception:
             pass
 
-    _need_visible = config.scraper_indeed  # Indeed needs non-headless for Cloudflare
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
-            headless=not _need_visible,
+            headless=False,
             args=["--disable-blink-features=AutomationControlled", "--disable-infobars"],
             ignore_default_args=["--enable-automation", "--no-sandbox"],
         )
