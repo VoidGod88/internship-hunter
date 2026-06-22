@@ -302,6 +302,34 @@ LinkedIn has strong Cloudflare protection that blocks automated scrapers. This p
 
 ## 📝 Changelog
 
+### 2026-06-23
+
+#### Added
+- **PolyU Scraper Restored** — PolyU job board scraper is fully functional (was incorrectly marked as removed in earlier changelog)
+- **Match Overview Real-Time Refresh** — Analyze All progress now updates match overview and job list in real-time without losing results on refresh
+
+#### Changed
+- **`.env.example` defaults to DeepSeek** — `LLM_BASE_URL` and `LLM_MODEL` now default to DeepSeek; OpenRouter/OpenAI preserved in comments
+- **Scraper Speed Optimizations** — Reduced per-keyword runtime by 50-70% across all platforms:
+
+| Platform | Before | After |
+|----------|--------|-------|
+| eFC | ~24s/kw | ~7s/kw |
+| Indeed | ~13s/kw | ~4s/kw |
+| JobsDB | ~22s/kw | ~6s/kw |
+| LinkedIn | ~18s/kw | ~8s/kw |
+| PolyU | ~30s/kw | ~15s/kw |
+
+#### Fixed
+- **Refresh loses match results** — Cache now invalidated after Analyze/Analyze All, so refresh correctly shows ✅/❌ badges
+- **LinkedIn session detection** — Fixed cookie expiry + security challenge detection (feed URL fast-path, challenge page detection)
+- **LinkedIn rate limiting** — Increased goto timeout to 45s with retry; increased inter-page delay to avoid 429
+- **JobsDB last page stuck** — Added auto-stop after 2 consecutive pages with 0 new cards
+- **PolyU 0-new-card hang** — Fixed 30s timeout when page 2 has 0 new cards (skip `_radix_goto_next_page` on 0 new)
+- **Browser window leak** — Each platform now closes its browser context after finishing (no more accumulated windows)
+- **Ctrl+C / Stop button** — Now properly kills child processes and cleans up stop flags
+- **Unified log format** — All scrapers now use consistent `[Platform] kw: N jobs` and `Page N: X cards → +Y new (Z total)` format
+
 ### 2026-06-22
 
 #### Added
@@ -321,14 +349,12 @@ LinkedIn has strong Cloudflare protection that blocks automated scrapers. This p
 - **🤖 Analyze All** — Batch LLM match for all unevaluated jobs with real-time progress indicator; skips already-matched jobs
 - **📊 Match Overview** — Sortable table: ✅/❌/⏳ match status, scores, and mismatch reasons for all jobs; click to jump to any job
 - **✅/❌ per job in list** — `cv_match` result shown as icon next to each job in the dropdown
+- **Login buttons in Settings** — LinkedIn/PolyU login buttons moved to Settings panel (cleaner main UI)
 
 #### Fixed
 - **Settings Save not updating config** — `Config.reload_inplace()` now calls `load_dotenv(override=True)` + re-reads `config.yaml`; previously saved credentials were silently ignored
 - **`python-multipart` missing** — Added to `requirements.txt`; fresh clones now install correctly
 - **LinkedIn Google login** — `linkedin_login.py` now uses `wait_for_selector` for Google OAuth iframe instead of blind `sleep(5)`
-
-#### Removed
-- **PolyU Job Board scraper** — PolyU scraper module and related config fields removed (PolyU login UI button kept for reference)
 
 ### 2026-06-19
 

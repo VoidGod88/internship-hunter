@@ -71,20 +71,6 @@ def _go_to_next_page(page) -> bool:
     return False
 
 
-def _scroll_to_load_all(page, max_scrolls: int = 5) -> None:
-    """
-    Scroll down gradually to trigger lazy-loading of all job cards on the current page.
-    Stops when no new content is added after a scroll, or max_scrolls reached.
-    """
-    for _ in range(max_scrolls):
-        prev_height = page.evaluate("document.body.scrollHeight")
-        page.evaluate("window.scrollBy(0, window.innerHeight)")
-        page.wait_for_timeout(400)
-        new_height = page.evaluate("document.body.scrollHeight")
-        if new_height == prev_height:
-            break
-
-
 def _check_page_6(page, base_url: str) -> bool:
     """
     Quick probe: check if page 6 has job cards.
@@ -193,7 +179,6 @@ def _scrape_jobsdb_keyword(page, kw: str, base_url: str, max_pages: int = 0, max
     """Scrape one keyword with a given base URL. Returns list of jobs."""
     kw_jobs = []
     page_num = 0
-    consecutive_zero_new = 0  # break if 2 consecutive pages yield 0 new
 
     while True:
         url = base_url
@@ -205,9 +190,6 @@ def _scrape_jobsdb_keyword(page, kw: str, base_url: str, max_pages: int = 0, max
             log.info(f"[JobsDB]   Fetching page {page_num + 1}: {url}")
             page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             page.wait_for_timeout(1500)
-
-            # Scroll to trigger lazy-loading of all cards on this page
-            _scroll_to_load_all(page)
 
             cards = _query_selector_all_multi(page, CARD_SELECTORS)
             if not cards:
@@ -262,14 +244,10 @@ def _scrape_jobsdb_keyword(page, kw: str, base_url: str, max_pages: int = 0, max
             new_count = len(kw_jobs) - before_count
             log.info(f"[JobsDB]   Page {page_num + 1}: {len(cards)} cards → +{new_count} new ({len(kw_jobs)} total)")
 
-            # Break if 2 consecutive pages yield 0 new unique cards
-            if new_count == 0:
-                consecutive_zero_new += 1
-                if consecutive_zero_new >= 2:
-                    log.info("[JobsDB]   No new cards for 2 consecutive pages, stopping.")
-                    break
-            else:
-                consecutive_zero_new = 0
+            # Stop if this page has fewer than 30 cards (last page, Next may still exist but yields duplicates)
+            if len(cards) < 30:
+                log.info("[JobsDB]   Last page detected (< 30 cards), stopping.")
+                break
 
             if max_jobs > 0 and len(kw_jobs) >= max_jobs:
                 break
