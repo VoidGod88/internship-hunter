@@ -204,15 +204,32 @@ def _build_url(kw: str) -> str:
     if config.id_radius:
         params.append(f"radius={config.id_radius}")
     params.append("l=Hong+Kong")
-    if config.id_education:
-        valid = {"HFDVW", "EXSNN", "6QC5F", "MR89S"}
-        codes = [c for c in config.id_education if c in valid]
-        if codes:
-            if len(codes) == 1:
-                sc_val = f"0kf%3Aattr%28{codes[0]}%29%3B"
+
+    # Build sc= param from encrypted filters (education + HK-specific job types)
+    edu_valid = {"HFDVW", "EXSNN", "6QC5F", "MR89S"}
+    jt_sc_valid = {"7EQCZ", "2X29N", "ZG59D"}
+    edu_codes = [c for c in config.id_education if c in edu_valid]
+    jt_sc_codes = [c for c in getattr(config, 'id_job_types_sc', []) if c in jt_sc_valid]
+
+    if edu_codes or jt_sc_codes:
+        # Only education or only job_type_sc: use simple format
+        if edu_codes and not jt_sc_codes:
+            if len(edu_codes) == 1:
+                sc_val = f"0kf%3Aattr%28{edu_codes[0]}%29%3B"
             else:
-                sc_val = f"0kf%3Aattr%28{'%7C'.join(codes)}%252COR%29%3B"
-            params.append(f"sc={sc_val}")
+                sc_val = f"0kf%3Aattr%28{'%7C'.join(edu_codes)}%252COR%29%3B"
+        elif jt_sc_codes and not edu_codes:
+            if len(jt_sc_codes) == 1:
+                sc_val = f"0kf%3Aattr%28{jt_sc_codes[0]}%29%3B"
+            else:
+                sc_val = f"0kf%3Aattr%28{'%7C'.join(jt_sc_codes)}%252COR%29%3B"
+        else:
+            # Both present: combine as observed in Indeed HK URLs
+            edu_part = '%7C'.join(edu_codes) if len(edu_codes) > 1 else edu_codes[0]
+            jt_part = '%7C'.join(jt_sc_codes) if len(jt_sc_codes) > 1 else jt_sc_codes[0]
+            sc_val = f"0kf%3Aattr%28{jt_part}%29%29attr%28{edu_part}%29%3B"
+        params.append(f"sc={sc_val}")
+
     return "https://hk.indeed.com/jobs?" + "&".join(params)
 
 

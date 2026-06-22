@@ -1623,6 +1623,12 @@ select.input-sm { min-width:200px; cursor:pointer; }
               <input type="checkbox" value="temporary" id="fld_id_jt_temporary"> 短期</label>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
               <input type="checkbox" value="permanent" id="fld_id_jt_permanent"> 長工</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="7EQCZ" id="fld_id_jt_freshgrad" data-sc="true"> 應屆畢業生</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="2X29N" id="fld_id_jt_renewal" data-sc="true"> 合約更新</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="ZG59D" id="fld_id_jt_freelance" data-sc="true"> 自由工作</label>
           </div>
         </div>
       </div>
@@ -2651,9 +2657,15 @@ async function openSettings() {
         const el = document.getElementById('fld_id_edu_' + v);
         if (el) el.checked = true;
       });
-      // Indeed job types: check checkboxes from list
+      // Indeed job types: check checkboxes from list (standard jt=)
       (id.job_types || []).forEach(v => {
         const el = document.getElementById('fld_id_jt_' + v);
+        if (el) el.checked = true;
+      });
+      // Encrypted sc= HK-specific job types
+      const scMap = { '7EQCZ': 'freshgrad', '2X29N': 'renewal', 'ZG59D': 'freelance' };
+      (id.job_types_sc || []).forEach(v => {
+        const el = document.getElementById('fld_id_jt_' + scMap[v]);
         if (el) el.checked = true;
       });
       document.getElementById('fld_id_date_range').value = id.date_range || '';
@@ -2688,6 +2700,18 @@ async function openSettings() {
           }
         }
         jtList.forEach(v => { const el = document.getElementById('fld_id_jt_'+v); if(el) el.checked=true; });
+        // Parse job_types_sc (encrypted HK-specific job types)
+        const jtScRaw = getId('job_types_sc', '[]');
+        let jtScList = [];
+        try { jtScList = JSON.parse(jtScRaw); } catch(e) {
+          if (jtScRaw.startsWith('[')) {
+            jtScList = jtScRaw.replace(/^\[|\]$/g,'').split(',').map(s=>s.trim()).filter(Boolean);
+          } else if (jtScRaw) {
+            jtScList = [jtScRaw];
+          }
+        }
+        const scMap2 = { '7EQCZ': 'freshgrad', '2X29N': 'renewal', 'ZG59D': 'freelance' };
+        jtScList.forEach(v => { const el = document.getElementById('fld_id_jt_'+scMap2[v]); if(el) el.checked=true; });
         document.getElementById('fld_id_sort_by').value = getId('sort_by', 'date');
         document.getElementById('fld_id_radius').value = getId('radius', '50');
       }
@@ -2774,14 +2798,21 @@ async function saveSettings() {
       const cb = document.getElementById('fld_id_edu_' + v);
       return cb && cb.checked;
     });
-    const idJobTypes = ['internship','fulltime','parttime','contract','temporary','permanent','commission'].filter(v => {
+    // Standard jt= job types
+    const idJobTypes = ['internship','fulltime','parttime','contract','temporary','permanent'].filter(v => {
       const cb = document.getElementById('fld_id_jt_' + v);
+      return cb && cb.checked;
+    });
+    // Encrypted sc= HK-specific job types (應屆畢業生, 合約更新, 自由工作)
+    const idJobTypesSc = ['7EQCZ','2X29N','ZG59D'].filter(v => {
+      const cb = document.getElementById('fld_id_jt_' + { '7EQCZ':'freshgrad', '2X29N':'renewal', 'ZG59D':'freelance' }[v]);
       return cb && cb.checked;
     });
     settings['indeed_filters'] = {
       'date_range': document.getElementById('fld_id_date_range').value,
       'education': idEducation,
       'job_types': idJobTypes,
+      'job_types_sc': idJobTypesSc,
       'sort_by': document.getElementById('fld_id_sort_by').value,
       'radius': document.getElementById('fld_id_radius').value.trim() || '50',
     };
