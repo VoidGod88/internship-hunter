@@ -307,8 +307,8 @@ def _scrape_keyword(page, kw: str) -> list:
 def scrape_linkedin(page, keywords: list[str]) -> list:
     """Scrape LinkedIn HK jobs. One browser session for all keywords."""
     # Ensure LinkedIn session is established (cookies need feed/ visit to activate)
-    current = page.url
-    if "feed" not in current and "linkedin.com" not in current:
+    current = page.url.lower()
+    if "feed" not in current:
         log.info("[LinkedIn]   Establishing session (navigating to feed/)")
         try:
             page.goto("https://www.linkedin.com/feed/", timeout=45000)
@@ -317,7 +317,7 @@ def scrape_linkedin(page, keywords: list[str]) -> list:
             log.warning(f"[LinkedIn]   Feed navigation failed: {e}")
             log.info(f"[LinkedIn]   Landed on: {page.url}")
 
-    # Handle security challenge — wait for user to complete it manually
+    # Handle post-navigation issues: challenge page or login (expired cookies)
     if _is_challenge_page(page):
         ok, _ = _check_session(page)
         if not ok:
@@ -333,9 +333,13 @@ def scrape_linkedin(page, keywords: list[str]) -> list:
             page.wait_for_url("**/feed/**", timeout=15000)
         except Exception as e:
             log.warning(f"[LinkedIn]   Feed re-navigation failed: {e}")
-            ok, _ = _check_session(page)
-            if not ok:
+            if not _check_session(page)[0]:
                 return []
+    elif "login" in page.url.lower():
+        # Cookies expired, redirected to login — bail early, don't waste time
+        log.warning("[LinkedIn]   Not logged in! Cookies may be expired.")
+        log.warning("[LinkedIn]   Please run: python linkedin_login.py")
+        return []
 
     jobs: list = []
     log.info(f"[LinkedIn] Searching {len(keywords)} keywords...")
