@@ -194,7 +194,17 @@ def _scrape_keyword(page, kw: str) -> list:
         log.debug(f"[LinkedIn]   Page {page_num+1}: &start={start}")
 
         try:
-            page.goto(url, timeout=30000)
+            # LinkedIn rate-limits automated access; retry once on timeout
+            for attempt in range(2):
+                try:
+                    page.goto(url, timeout=45000)
+                    break
+                except Exception as e:
+                    if attempt == 0 and ("Timeout" in str(e) or "timeout" in str(e).lower()):
+                        log.info(f"[LinkedIn]   Retrying after timeout...")
+                        time.sleep(3)
+                        continue
+                    raise
             time.sleep(0.5)
 
             # Scroll to trigger lazy loading
@@ -241,8 +251,8 @@ def _scrape_keyword(page, kw: str) -> list:
             empty_pages = 0
             page_num += 1
 
-            # Human-like delay
-            time.sleep(random.uniform(0.5, 1))
+            # Human-like delay (longer to avoid rate limiting)
+            time.sleep(random.uniform(2, 3))
 
         except Exception as e:
             log.warning(f"[LinkedIn]   Page {page_num+1} error: {e}")
