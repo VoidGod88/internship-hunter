@@ -643,10 +643,7 @@ def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-7s  %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler("hunter.log", encoding="utf-8"),
-        ],
+        handlers=[logging.StreamHandler()],
     )
     # Force line buffering + ensure handler terminator is \n
     import sys
