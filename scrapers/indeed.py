@@ -193,32 +193,36 @@ def _check_login(page) -> bool:
 
 
 def _build_url(kw: str) -> str:
-    """Build Indeed HK search URL from config filters."""
+    """Build Indeed HK search URL from config filters.
+
+    Indeed HK uses encrypted sc= parameters for ALL filters (education + job types).
+    Standard jt= parameter does NOT work on Indeed HK.
+    """
     params = [f"q={kw.replace(' ', '+')}"]
     if config.id_date_range:
         params.append(f"fromage={config.id_date_range}")
-    if config.id_job_types:
-        params.append(f"jt={','.join(config.id_job_types)}")
     if config.id_sort_by:
         params.append(f"sort={config.id_sort_by}")
     if config.id_radius:
         params.append(f"radius={config.id_radius}")
     params.append("l=Hong+Kong")
 
-    # Build sc= param from encrypted filters (education + HK-specific job types)
+    # Build sc= param from encrypted filters (education + job types)
     edu_valid = {"HFDVW", "EXSNN", "6QC5F", "MR89S"}
-    jt_sc_valid = {"7EQCZ", "2X29N", "ZG59D"}
+    jt_sc_valid = {"VDTG7", "75GKK", "T9BXE", "CF3CP", "5QWDV",
+                   "T65DZ", "7EQCZ", "2X29N", "ZG59D"}
     edu_codes = [c for c in config.id_education if c in edu_valid]
-    jt_sc_codes = [c for c in getattr(config, 'id_job_types_sc', []) if c in jt_sc_valid]
+    jt_sc_codes = [c for c in config.id_job_types_sc if c in jt_sc_valid]
 
     if edu_codes or jt_sc_codes:
-        # Only education or only job_type_sc: use simple format
+        # Only education: simple format
         if edu_codes and not jt_sc_codes:
             if len(edu_codes) == 1:
                 sc_val = f"0kf%3Aattr%28{edu_codes[0]}%29%3B"
             else:
                 sc_val = f"0kf%3Aattr%28{'%7C'.join(edu_codes)}%252COR%29%3B"
         elif jt_sc_codes and not edu_codes:
+            # Only job type(s)
             if len(jt_sc_codes) == 1:
                 sc_val = f"0kf%3Aattr%28{jt_sc_codes[0]}%29%3B"
             else:

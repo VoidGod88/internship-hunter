@@ -148,8 +148,7 @@ class Config:
     # ── Indeed search filters ──
     id_date_range: str = ""           # fromage: 1, 3, 7, 14, or empty
     id_education: list = field(default_factory=list)  # ["HFDVW","EXSNN","6QC5F","MR89S"]
-    id_job_types: list = field(default_factory=list)  # [internship,fulltime,parttime,contract,temporary,permanent]
-    id_job_types_sc: list = field(default_factory=list)  # HK-specific encrypted sc= codes [7EQCZ,2X29N,ZG59D]
+    id_job_types_sc: list = field(default_factory=list)  # Indeed HK job types via sc= codes [VDTG7,75GKK,T9BXE,CF3CP,5QWDV,T65DZ,7EQCZ,2X29N,ZG59D]
     id_sort_by: str = ""              # date, relevance
     id_radius: str = ""               # km radius
 
@@ -273,12 +272,6 @@ class Config:
                 cfg.id_education = [v.strip() for v in edu.split(",") if v.strip()] if edu else []
             else:
                 cfg.id_education = list(edu) if edu else []
-            cfg.id_job_types = str(id_filters.get("job_types", ""))  # legacy key
-            jt = id_filters.get("job_types", id_filters.get("job_type", []))
-            if isinstance(jt, str):
-                cfg.id_job_types = [x.strip() for x in jt.split(",") if x.strip()] if jt else []
-            else:
-                cfg.id_job_types = list(jt) if jt else []
             jt_sc = id_filters.get("job_types_sc", [])
             if isinstance(jt_sc, str):
                 cfg.id_job_types_sc = [x.strip() for x in jt_sc.split(",") if x.strip()] if jt_sc else []

@@ -67,39 +67,38 @@ print("\n【Indeed】")
 params = [f"q={kw.replace(' ', '+')}"]
 if _config.config.id_date_range:
     params.append(f"fromage={_config.config.id_date_range}")
-if _config.config.id_job_types:
-    params.append(f"jt={','.join(_config.config.id_job_types)}")
 if _config.config.id_sort_by:
     params.append(f"sort={_config.config.id_sort_by}")
 if _config.config.id_radius:
     params.append(f"radius={_config.config.id_radius}")
-if _config.config.id_education:
-    valid = {"HFDVW","EXSNN","6QC5F","MR89S"}
-    codes = [c for c in _config.config.id_education if c in valid]
-    jt_sc_valid = {"7EQCZ", "2X29N", "ZG59D"}
-    jt_sc_codes = [c for c in getattr(_config.config, 'id_job_types_sc', []) if c in jt_sc_valid]
-    if codes or jt_sc_codes:
-        if codes and not jt_sc_codes:
-            if len(codes) == 1:
-                sc_val = f"0kf%3Aattr%28{codes[0]}%29%3B"
-            else:
-                sc_val = f"0kf%3Aattr%28{'%7C'.join(codes)}%252COR%29%3B"
-        elif jt_sc_codes and not codes:
-            if len(jt_sc_codes) == 1:
-                sc_val = f"0kf%3Aattr%28{jt_sc_codes[0]}%29%3B"
-            else:
-                sc_val = f"0kf%3Aattr%28{'%7C'.join(jt_sc_codes)}%252COR%29%3B"
+
+# Build sc= param from encrypted filters (education + job types)
+edu_valid = {"HFDVW","EXSNN","6QC5F","MR89S"}
+jt_sc_valid = {"VDTG7","75GKK","T9BXE","CF3CP","5QWDV",
+                "T65DZ","7EQCZ","2X29N","ZG59D"}
+edu_codes = [c for c in _config.config.id_education if c in edu_valid]
+jt_sc_codes = [c for c in _config.config.id_job_types_sc if c in jt_sc_valid]
+if edu_codes or jt_sc_codes:
+    if edu_codes and not jt_sc_codes:
+        if len(edu_codes) == 1:
+            sc_val = f"0kf%3Aattr%28{edu_codes[0]}%29%3B"
         else:
-            edu_part = '%7C'.join(codes) if len(codes) > 1 else codes[0]
-            jt_part = '%7C'.join(jt_sc_codes) if len(jt_sc_codes) > 1 else jt_sc_codes[0]
-            sc_val = f"0kf%3Aattr%28{jt_part}%29%29attr%28{edu_part}%29%3B"
-        params.append(f"sc={sc_val}")
-        print(f"  education codes  = {codes}")
-        print(f"  job_type_sc codes= {jt_sc_codes}")
+            sc_val = f"0kf%3Aattr%28{'%7C'.join(edu_codes)}%252COR%29%3B"
+    elif jt_sc_codes and not edu_codes:
+        if len(jt_sc_codes) == 1:
+            sc_val = f"0kf%3Aattr%28{jt_sc_codes[0]}%29%3B"
+        else:
+            sc_val = f"0kf%3Aattr%28{'%7C'.join(jt_sc_codes)}%252COR%29%3B"
+    else:
+        edu_part = '%7C'.join(edu_codes) if len(edu_codes) > 1 else edu_codes[0]
+        jt_part = '%7C'.join(jt_sc_codes) if len(jt_sc_codes) > 1 else jt_sc_codes[0]
+        sc_val = f"0kf%3Aattr%28{jt_part}%29%29attr%28{edu_part}%29%3B"
+    params.append(f"sc={sc_val}")
+    print(f"  education codes  = {edu_codes}")
+    print(f"  job_type_sc codes= {jt_sc_codes}")
 params.append("l=Hong+Kong")
 url_id = "https://hk.indeed.com/jobs?" + "&".join(params)
 print(f"  date_range       = {_config.config.id_date_range}")
-print(f"  job_types        = {_config.config.id_job_types!r}  (空=不过滤)")
 print(f"  job_types_sc     = {getattr(_config.config, 'id_job_types_sc', [])!r}")
 print(f"  education        = {_config.config.id_education!r}")
 print(f"  sort_by          = {_config.config.id_sort_by}")

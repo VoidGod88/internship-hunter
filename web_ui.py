@@ -1612,23 +1612,23 @@ select.input-sm { min-width:200px; cursor:pointer; }
           <label>Job Type (職位類型, multi-select)</label>
           <div style="display:flex;flex-wrap:wrap;gap:6px 16px;padding-top:4px">
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="internship" id="fld_id_jt_internship"> 實習</label>
+              <input type="checkbox" value="VDTG7" id="fld_id_jt_intern"> 實習</label>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="fulltime" id="fld_id_jt_fulltime"> 全職</label>
+              <input type="checkbox" value="75GKK" id="fld_id_jt_parttime"> 兼職</label>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="parttime" id="fld_id_jt_parttime"> 兼職</label>
+              <input type="checkbox" value="T9BXE" id="fld_id_jt_temp"> 短期</label>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="contract" id="fld_id_jt_contract"> 合約</label>
+              <input type="checkbox" value="CF3CP" id="fld_id_jt_fulltime"> 全職</label>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="temporary" id="fld_id_jt_temporary"> 短期</label>
+              <input type="checkbox" value="5QWDV" id="fld_id_jt_permanent"> 長工</label>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="permanent" id="fld_id_jt_permanent"> 長工</label>
+              <input type="checkbox" value="T65DZ" id="fld_id_jt_contract"> 合約</label>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="7EQCZ" id="fld_id_jt_freshgrad" data-sc="true"> 應屆畢業生</label>
+              <input type="checkbox" value="7EQCZ" id="fld_id_jt_freshgrad"> 應屆畢業生</label>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="2X29N" id="fld_id_jt_renewal" data-sc="true"> 合約更新</label>
+              <input type="checkbox" value="2X29N" id="fld_id_jt_renewal"> 合約更新</label>
             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="ZG59D" id="fld_id_jt_freelance" data-sc="true"> 自由工作</label>
+              <input type="checkbox" value="ZG59D" id="fld_id_jt_freelance"> 自由工作</label>
           </div>
         </div>
       </div>
@@ -2657,15 +2657,9 @@ async function openSettings() {
         const el = document.getElementById('fld_id_edu_' + v);
         if (el) el.checked = true;
       });
-      // Indeed job types: check checkboxes from list (standard jt=)
-      (id.job_types || []).forEach(v => {
-        const el = document.getElementById('fld_id_jt_' + v);
-        if (el) el.checked = true;
-      });
-      // Encrypted sc= HK-specific job types
-      const scMap = { '7EQCZ': 'freshgrad', '2X29N': 'renewal', 'ZG59D': 'freelance' };
+      // Indeed job types: all use sc= encrypted codes, find by value attribute
       (id.job_types_sc || []).forEach(v => {
-        const el = document.getElementById('fld_id_jt_' + scMap[v]);
+        const el = document.querySelector('input[type="checkbox"][value="' + v + '"]');
         if (el) el.checked = true;
       });
       document.getElementById('fld_id_date_range').value = id.date_range || '';
@@ -2690,17 +2684,7 @@ async function openSettings() {
         }
         eduList.forEach(v => { const el = document.getElementById('fld_id_edu_'+v); if(el) el.checked=true; });
         // Parse job_types (may be list format like [internship,fulltime] or plain string)
-        const jtRaw = getId('job_types', '[]');
-        let jtList = [];
-        try { jtList = JSON.parse(jtRaw); } catch(e) {
-          if (jtRaw.startsWith('[')) {
-            jtList = jtRaw.replace(/^\[|\]$/g,'').split(',').map(s=>s.trim()).filter(Boolean);
-          } else if (jtRaw) {
-            jtList = [jtRaw];
-          }
-        }
-        jtList.forEach(v => { const el = document.getElementById('fld_id_jt_'+v); if(el) el.checked=true; });
-        // Parse job_types_sc (encrypted HK-specific job types)
+        // Parse job_types_sc (all Indeed job types use encrypted sc= codes)
         const jtScRaw = getId('job_types_sc', '[]');
         let jtScList = [];
         try { jtScList = JSON.parse(jtScRaw); } catch(e) {
@@ -2710,8 +2694,7 @@ async function openSettings() {
             jtScList = [jtScRaw];
           }
         }
-        const scMap2 = { '7EQCZ': 'freshgrad', '2X29N': 'renewal', 'ZG59D': 'freelance' };
-        jtScList.forEach(v => { const el = document.getElementById('fld_id_jt_'+scMap2[v]); if(el) el.checked=true; });
+        jtScList.forEach(v => { const el = document.querySelector('input[type="checkbox"][value="'+v+'"]'); if(el) el.checked=true; });
         document.getElementById('fld_id_sort_by').value = getId('sort_by', 'date');
         document.getElementById('fld_id_radius').value = getId('radius', '50');
       }
@@ -2798,20 +2781,16 @@ async function saveSettings() {
       const cb = document.getElementById('fld_id_edu_' + v);
       return cb && cb.checked;
     });
-    // Standard jt= job types
-    const idJobTypes = ['internship','fulltime','parttime','contract','temporary','permanent'].filter(v => {
-      const cb = document.getElementById('fld_id_jt_' + v);
-      return cb && cb.checked;
-    });
-    // Encrypted sc= HK-specific job types (應屆畢業生, 合約更新, 自由工作)
-    const idJobTypesSc = ['7EQCZ','2X29N','ZG59D'].filter(v => {
-      const cb = document.getElementById('fld_id_jt_' + { '7EQCZ':'freshgrad', '2X29N':'renewal', 'ZG59D':'freelance' }[v]);
-      return cb && cb.checked;
+    // All Indeed job types use encrypted sc= codes (HK-specific)
+    const idJobTypesSc = ['VDTG7','75GKK','T9BXE','CF3CP','5QWDV','T65DZ','7EQCZ','2X29N','ZG59D'].filter(v => {
+      const cb = document.querySelector('#fld_id_jt_int, #fld_id_jt_parttime, #fld_id_jt_temp, #fld_id_jt_fulltime, #fld_id_jt_permanent, #fld_id_jt_contract, #fld_id_jt_freshgrad, #fld_id_jt_renewal, #fld_id_jt_freelance');
+      // Find by value attribute
+      const el = document.querySelector('input[type="checkbox"][value="' + v + '"]');
+      return el && el.checked;
     });
     settings['indeed_filters'] = {
       'date_range': document.getElementById('fld_id_date_range').value,
       'education': idEducation,
-      'job_types': idJobTypes,
       'job_types_sc': idJobTypesSc,
       'sort_by': document.getElementById('fld_id_sort_by').value,
       'radius': document.getElementById('fld_id_radius').value.trim() || '50',
