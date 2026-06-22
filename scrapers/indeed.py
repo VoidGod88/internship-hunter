@@ -197,8 +197,8 @@ def _build_url(kw: str) -> str:
     params = [f"q={kw.replace(' ', '+')}"]
     if config.id_date_range:
         params.append(f"fromage={config.id_date_range}")
-    if config.id_job_type:
-        params.append(f"jt={config.id_job_type}")
+    if config.id_job_types:
+        params.append(f"jt={','.join(config.id_job_types)}")
     if config.id_sort_by:
         params.append(f"sort={config.id_sort_by}")
     if config.id_radius:

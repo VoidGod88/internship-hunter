@@ -67,8 +67,8 @@ print("\n【Indeed】")
 params = [f"q={kw.replace(' ', '+')}"]
 if _config.config.id_date_range:
     params.append(f"fromage={_config.config.id_date_range}")
-if _config.config.id_job_type:
-    params.append(f"jt={_config.config.id_job_type}")
+if _config.config.id_job_types:
+    params.append(f"jt={','.join(_config.config.id_job_types)}")
 if _config.config.id_sort_by:
     params.append(f"sort={_config.config.id_sort_by}")
 if _config.config.id_radius:
@@ -86,7 +86,7 @@ if _config.config.id_education:
 params.append("l=Hong+Kong")
 url_id = "https://hk.indeed.com/jobs?" + "&".join(params)
 print(f"  date_range       = {_config.config.id_date_range}")
-print(f"  job_type         = {_config.config.id_job_type!r}  (空=不过滤)")
+print(f"  job_types        = {_config.config.id_job_types!r}  (空=不过滤)")
 print(f"  education        = {_config.config.id_education!r}")
 print(f"  sort_by          = {_config.config.id_sort_by}")
 print(f"  radius           = {_config.config.id_radius}")

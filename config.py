@@ -148,7 +148,7 @@ class Config:
     # ── Indeed search filters ──
     id_date_range: str = ""           # fromage: 1, 3, 7, 14, or empty
     id_education: list = field(default_factory=list)  # ["HFDVW","EXSNN","6QC5F","MR89S"]
-    id_job_type: str = ""             # internship, fulltime, parttime, contract, or empty
+    id_job_types: list = field(default_factory=list)  # [internship,fulltime,parttime,contract,temporary,permanent]
     id_sort_by: str = ""              # date, relevance
     id_radius: str = ""               # km radius
 
@@ -272,7 +272,12 @@ class Config:
                 cfg.id_education = [v.strip() for v in edu.split(",") if v.strip()] if edu else []
             else:
                 cfg.id_education = list(edu) if edu else []
-            cfg.id_job_type = str(id_filters.get("job_type", ""))
+            cfg.id_job_types = str(id_filters.get("job_types", ""))  # legacy key
+            jt = id_filters.get("job_types", id_filters.get("job_type", []))
+            if isinstance(jt, str):
+                cfg.id_job_types = [x.strip() for x in jt.split(",") if x.strip()] if jt else []
+            else:
+                cfg.id_job_types = list(jt) if jt else []
             cfg.id_sort_by = str(id_filters.get("sort_by", ""))
             cfg.id_radius = str(id_filters.get("radius", ""))
 

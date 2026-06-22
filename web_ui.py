@@ -1608,6 +1608,27 @@ select.input-sm { min-width:200px; cursor:pointer; }
         </div>
       </div>
       <div class="form-row">
+        <div class="form-group" style="flex:1;min-width:0">
+          <label>Job Type (職位類型, multi-select)</label>
+          <div style="display:flex;flex-direction:column;gap:4px;padding-top:4px;max-height:160px;overflow-y:auto">
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="internship" id="fld_id_jt_internship"> 實習 (Internship)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="fulltime" id="fld_id_jt_fulltime"> 全職 (Full-time)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="parttime" id="fld_id_jt_parttime"> 兼職 (Part-time)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="contract" id="fld_id_jt_contract"> 合約 (Contract)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="temporary" id="fld_id_jt_temporary"> 短期 (Temporary)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="permanent" id="fld_id_jt_permanent"> 長工 (Permanent)</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="commission" id="fld_id_jt_commission"> 佣金 (Commission)</label>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
         <div class="form-group">
           <label>Radius (km)</label>
           <input type="text" id="fld_id_radius" placeholder="50">
@@ -2632,6 +2653,11 @@ async function openSettings() {
         const el = document.getElementById('fld_id_edu_' + v);
         if (el) el.checked = true;
       });
+      // Indeed job types: check checkboxes from list
+      (id.job_types || []).forEach(v => {
+        const el = document.getElementById('fld_id_jt_' + v);
+        if (el) el.checked = true;
+      });
       document.getElementById('fld_id_date_range').value = id.date_range || '';
       document.getElementById('fld_id_sort_by').value = id.sort_by || 'date';
       document.getElementById('fld_id_radius').value = (id.radius || '50').toString();
@@ -2653,6 +2679,17 @@ async function openSettings() {
           }
         }
         eduList.forEach(v => { const el = document.getElementById('fld_id_edu_'+v); if(el) el.checked=true; });
+        // Parse job_types (may be list format like [internship,fulltime] or plain string)
+        const jtRaw = getId('job_types', '[]');
+        let jtList = [];
+        try { jtList = JSON.parse(jtRaw); } catch(e) {
+          if (jtRaw.startsWith('[')) {
+            jtList = jtRaw.replace(/^\[|\]$/g,'').split(',').map(s=>s.trim()).filter(Boolean);
+          } else if (jtRaw) {
+            jtList = [jtRaw];
+          }
+        }
+        jtList.forEach(v => { const el = document.getElementById('fld_id_jt_'+v); if(el) el.checked=true; });
         document.getElementById('fld_id_sort_by').value = getId('sort_by', 'date');
         document.getElementById('fld_id_radius').value = getId('radius', '50');
       }
@@ -2739,10 +2776,14 @@ async function saveSettings() {
       const cb = document.getElementById('fld_id_edu_' + v);
       return cb && cb.checked;
     });
+    const idJobTypes = ['internship','fulltime','parttime','contract','temporary','permanent','commission'].filter(v => {
+      const cb = document.getElementById('fld_id_jt_' + v);
+      return cb && cb.checked;
+    });
     settings['indeed_filters'] = {
       'date_range': document.getElementById('fld_id_date_range').value,
       'education': idEducation,
-      'job_type': '',  // encrypted, not configurable via UI
+      'job_types': idJobTypes,
       'sort_by': document.getElementById('fld_id_sort_by').value,
       'radius': document.getElementById('fld_id_radius').value.trim() || '50',
     };
