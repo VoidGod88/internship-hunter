@@ -144,8 +144,6 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int =
         if params:
             sep = "&" if "?" in base_url else "?"
             scrape_url = base_url + sep + "&".join(params)
-        else:
-            scrape_url = base_url
         elif not config.jd_daterange:
             # No daterange configured — probe page 6 to decide
             has_page_6 = _check_page_6(page, base_url)
@@ -155,6 +153,8 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int =
             else:
                 log.info(f"[JobsDB]   {kw}: no page 6, using normal URL")
                 scrape_url = base_url
+        else:
+            scrape_url = base_url
 
         kw_jobs = _scrape_jobsdb_keyword(page, kw, scrape_url, max_pages=0, max_jobs=0)
         all_jobs.extend(kw_jobs)
