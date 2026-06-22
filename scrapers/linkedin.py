@@ -195,20 +195,20 @@ def _scrape_keyword(page, kw: str) -> list:
 
         try:
             page.goto(url, timeout=30000)
-            time.sleep(2)
+            time.sleep(0.5)
 
             # Scroll to trigger lazy loading
-            for _ in range(5):
+            for _ in range(3):
                 page.keyboard.press("End")
                 page.evaluate("window.scrollBy(0, 800)")
-                time.sleep(0.8)
+                time.sleep(0.5)
 
             # Wait for cards to appear
-            deadline = time.time() + 8
+            deadline = time.time() + 5
             while page.locator(_SELECTOR).count() < 10 and time.time() < deadline:
                 time.sleep(0.5)
             page.evaluate("window.scrollBy(0, 500)")
-            time.sleep(1)
+            time.sleep(0.3)
 
             cards = page.query_selector_all(_SELECTOR)
             count = len(cards)
@@ -242,7 +242,7 @@ def _scrape_keyword(page, kw: str) -> list:
             page_num += 1
 
             # Human-like delay
-            time.sleep(random.uniform(1.5, 3.0))
+            time.sleep(random.uniform(0.5, 1))
 
         except Exception as e:
             log.warning(f"[LinkedIn]   Page {page_num+1} error: {e}")
@@ -289,7 +289,7 @@ def scrape_linkedin(page, keywords: list[str]) -> list:
         if kw_jobs:
             log.info(f"[LinkedIn]   {kw}: {len(kw_jobs)} jobs")
 
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(1, 2))
 
     # Final cross-keyword dedup
     seen: set = set()
