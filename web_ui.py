@@ -1610,21 +1610,19 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <div class="form-row">
         <div class="form-group" style="flex:1;min-width:0">
           <label>Job Type (職位類型, multi-select)</label>
-          <div style="display:flex;flex-direction:column;gap:4px;padding-top:4px;max-height:160px;overflow-y:auto">
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="internship" id="fld_id_jt_internship"> 實習 (Internship)</label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="fulltime" id="fld_id_jt_fulltime"> 全職 (Full-time)</label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="parttime" id="fld_id_jt_parttime"> 兼職 (Part-time)</label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="contract" id="fld_id_jt_contract"> 合約 (Contract)</label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="temporary" id="fld_id_jt_temporary"> 短期 (Temporary)</label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="permanent" id="fld_id_jt_permanent"> 長工 (Permanent)</label>
-            <label style="display:flex;align-items:center;gap:3px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
-              <input type="checkbox" value="commission" id="fld_id_jt_commission"> 佣金 (Commission)</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px 16px;padding-top:4px">
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="internship" id="fld_id_jt_internship"> 實習</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="fulltime" id="fld_id_jt_fulltime"> 全職</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="parttime" id="fld_id_jt_parttime"> 兼職</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="contract" id="fld_id_jt_contract"> 合約</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="temporary" id="fld_id_jt_temporary"> 短期</label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:normal;cursor:pointer;white-space:nowrap">
+              <input type="checkbox" value="permanent" id="fld_id_jt_permanent"> 長工</label>
           </div>
         </div>
       </div>
