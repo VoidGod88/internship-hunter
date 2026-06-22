@@ -54,7 +54,7 @@ def _search_keyword(page, kw: str) -> list:
     # Stay on current page (already navigated to a working URL by _ensure_on_jobs_page)
     try:
         # Just reload current page instead of navigating to hardcoded URL
-        page.reload(wait_until="networkidle", timeout=30000)
+        page.reload(wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
         log.warning(f"  [PolyU] Failed to reload page for '{kw}': {e}")
         # Try to navigate back to jobs page
@@ -84,9 +84,11 @@ def _search_keyword(page, kw: str) -> list:
         try:
             box = page.query_selector(sel)
             if box and box.is_visible():
+                page.wait_for_timeout(200)
                 box.fill(kw)
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(200)
                 box.press("Enter")
+                page.wait_for_timeout(500)
                 page.wait_for_load_state("networkidle", timeout=15000)
                 searched = True
                 log.debug(f"  [PolyU] Searched '{kw}' using selector: {sel}")
@@ -319,7 +321,7 @@ def _enrich_with_details(page, items: list, kw: str) -> list:
             try:
                 page.goto(url, timeout=10000)
                 page.wait_for_load_state("domcontentloaded", timeout=10000)
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(300)
                 desc = (page.evaluate("() => document.body.innerText") or "").lower()
                 if any(w in desc for w in kw_words):
                     matched.append(item)
@@ -375,7 +377,7 @@ def _scrape_all_and_filter(page, kw: str) -> list:
             page_select = page.query_selector('select')
             if page_select:
                 page_select.select_option(str(current_page + 1))
-                page.wait_for_load_state("networkidle", timeout=10000)
+                page.wait_for_load_state("domcontentloaded", timeout=10000)
                 navigated = True
         except Exception:
             pass
@@ -386,7 +388,7 @@ def _scrape_all_and_filter(page, kw: str) -> list:
                 next_btn = page.query_selector('a[rel="next"], a:has-text(">"):not(:has-text(">>"))')
                 if next_btn and next_btn.is_visible():
                     next_btn.click()
-                    page.wait_for_load_state("networkidle", timeout=10000)
+                    page.wait_for_load_state("domcontentloaded", timeout=10000)
                     navigated = True
             except Exception:
                 pass
@@ -422,7 +424,7 @@ def _radix_goto_next_page(page) -> bool:
         current_page_num = int(current_text) if current_text.isdigit() else 1
 
         combobox.click()
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(300)
         page.wait_for_selector('[role="option"]', timeout=5000)
         options = page.query_selector_all('[role="option"]')
         next_page = current_page_num + 1
@@ -430,7 +432,7 @@ def _radix_goto_next_page(page) -> bool:
             opt_text = (opt.inner_text() or "").strip()
             if opt_text == str(next_page):
                 opt.click()
-                page.wait_for_timeout(1500)
+                page.wait_for_timeout(500)
                 page.wait_for_load_state("networkidle", timeout=10000)
                 return True
         # No next page found — close dropdown
@@ -487,9 +489,9 @@ def _find_and_use_search_box(page, kw: str) -> bool:
                 box.fill("")
                 page.wait_for_timeout(200)
                 box.fill(kw)
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(200)
                 box.press("Enter")
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(500)
                 page.wait_for_load_state("networkidle", timeout=15000)
                 return True
         except Exception:
@@ -524,7 +526,7 @@ def scrape_polyu(page, keywords: list[str] = None, max_pages: int = 3) -> list:
                     log.info(f'[PolyU] Clicking "View All" (matched: {sel})...')
                     btn.click()
                     page.wait_for_load_state("networkidle", timeout=30000)
-                    page.wait_for_timeout(2000)
+                    page.wait_for_timeout(500)
                     log.info(f"[PolyU]   Now on: {page.url}")
                     break
             except Exception:
