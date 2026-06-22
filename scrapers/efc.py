@@ -20,7 +20,7 @@ BASE = "https://www.efinancialcareers.hk"
 
 # ── Tunable scroll behaviour ──
 SCROLL_PAUSE_MS = 1500          # wait between scrolls
-SCROLL_MAX_NO_NEW = 4           # stop after N consecutive scrolls that add 0 new cards
+SCROLL_MAX_NO_NEW = 2           # stop after N consecutive scrolls that add 0 new cards
 SCROLL_MAX_ROUNDS = 100         # hard cap so a misbehaving page can't loop forever
 
 
@@ -267,20 +267,10 @@ def scrape_efc(page, keywords: list[str] = None,
         log.info(f"[eFC] Searching: {kw} | URL: {url}")
 
         try:
-            page.goto(url, wait_until="networkidle", timeout=60_000)
-            page.wait_for_timeout(3000)
+            page.goto(url, wait_until="load", timeout=60_000)
         except Exception as e:
             log.warning(f"[eFC]   Failed to load: {e}")
             continue
-
-        # Debug: log what selectors are present on the page
-        for sel in ["efc-job-card", "a.job-title", "a[href*='/jobs/']", "article", "[class*='job']", "[class*='JobCard']", "[data-cy]", "[class*='card']"]:
-            try:
-                c = page.locator(sel).count()
-                if c > 0:
-                    log.info(f"[eFC]   Page has {c} elements matching '{sel}'")
-            except Exception:
-                pass
 
         # If no cards found, save debug HTML
         has_cards = page.locator("efc-job-card").count() > 0 or page.locator("a[href*='/jobs/']").count() > 0
@@ -336,12 +326,11 @@ def scrape_efc(page, keywords: list[str] = None,
                 no_new_rounds = 0
             prev_count = total_now
 
-            if scroll_round % 10 == 0:
-                log.info(f"[eFC]   Scroll #{scroll_round}: {total_now} jobs so far...")
+            log.info(f"[eFC]   Scroll #{scroll_round}: {len(cards)} cards → +{new_count} new ({total_now} total)")
 
         all_jobs.extend(kw_jobs)
-        log.info(f"[eFC] Searching: {kw} → {len(kw_jobs)} jobs")
-        time.sleep(random.uniform(2, 4))
+        log.info(f"[eFC] {kw}: {len(kw_jobs)} jobs")
+        time.sleep(random.uniform(0.5, 1))
 
     # Deduplicate
     seen = set()

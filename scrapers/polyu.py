@@ -461,7 +461,7 @@ def _extract_all_pages(page, kw: str) -> list:
                 all_items.append(item)
                 new_count += 1
 
-        log.info(f"[PolyU]   [{kw}] Page {current_page}: +{new_count} ({len(all_items)} total)")
+        log.info(f"[PolyU]   Page {current_page}: {len(items)} cards → +{new_count} new ({len(all_items)} total)")
 
         # Try to go to next page
         if not _radix_goto_next_page(page):
@@ -568,7 +568,7 @@ def scrape_polyu(page, keywords: list[str] = None, max_pages: int = 3) -> list:
                 seen_urls.add(url)
                 all_items.append(item)
 
-        log.info(f"[PolyU] Searching: {kw} → {len(kw_items)} jobs")
+        log.info(f"[PolyU] {kw}: {len(kw_items)} jobs")
 
     # Convert to Job objects
     all_jobs = [Job(

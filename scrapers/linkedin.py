@@ -224,7 +224,7 @@ def _scrape_keyword(page, kw: str) -> list:
             # Extract jobs
             new_jobs = _extract_cards(page, seen_ids)
             jobs_for_kw.extend(new_jobs)
-            log.info(f"[LinkedIn]   Page {page_num+1}: +{len(new_jobs)} new (total: {len(jobs_for_kw)})")
+            log.info(f"[LinkedIn]   Page {page_num+1}: {count} cards → +{len(new_jobs)} new ({len(jobs_for_kw)} total)")
 
             # Stop conditions
             if count > 0 and count < page_size:
@@ -249,7 +249,7 @@ def _scrape_keyword(page, kw: str) -> list:
             empty_pages += 1
             page_num += 1
 
-    log.info(f"[LinkedIn] Searching: {kw} → {len(jobs_for_kw)} jobs")
+    log.info(f"[LinkedIn] {kw}: {len(jobs_for_kw)} jobs")
     return jobs_for_kw
 
 
@@ -285,9 +285,6 @@ def scrape_linkedin(page, keywords: list[str]) -> list:
             jobs.append(BaseScraper.make_job(
                 j["title"], j["company"], "Hong Kong", j["url"], "LinkedIn"
             ))
-
-        if kw_jobs:
-            log.info(f"[LinkedIn]   {kw}: {len(kw_jobs)} jobs")
 
         time.sleep(random.uniform(1, 2))
 

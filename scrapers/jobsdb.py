@@ -159,7 +159,7 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int =
         log.info(f"[JobsDB] Searching: {kw} | URL: {scrape_url}")
         kw_jobs = _scrape_jobsdb_keyword(page, kw, scrape_url, max_pages=0, max_jobs=0)
         all_jobs.extend(kw_jobs)
-        log.info(f"[JobsDB] {kw} → {len(kw_jobs)} jobs")
+        log.info(f"[JobsDB] {kw}: {len(kw_jobs)} jobs")
         time.sleep(random.uniform(1, 2))
 
     # Deduplicate by (title, company)
@@ -195,6 +195,7 @@ def _scrape_jobsdb_keyword(page, kw: str, base_url: str, max_pages: int = 0, max
             if not cards:
                 break
 
+            before_count = len(kw_jobs)
             for card in cards:
                 try:
                     title = ""
@@ -239,6 +240,8 @@ def _scrape_jobsdb_keyword(page, kw: str, base_url: str, max_pages: int = 0, max
 
                 except Exception:
                     continue
+
+            log.info(f"[JobsDB]   Page {page_num + 1}: {len(cards)} cards → +{len(kw_jobs) - before_count} new ({len(kw_jobs)} total)")
 
             if max_jobs > 0 and len(kw_jobs) >= max_jobs:
                 break

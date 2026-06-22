@@ -271,7 +271,7 @@ def _scrape_keyword(browser, kw: str, max_pages: int) -> list:
 
             try:
                 page.goto(next_url, timeout=30_000, wait_until="domcontentloaded")
-                time.sleep(3)
+                time.sleep(0.5)
             except Exception as e:
                 log.warning(f"[Indeed]   goto error: {e}")
                 break
@@ -328,7 +328,7 @@ def _scrape_keyword(browser, kw: str, max_pages: int) -> list:
                 ))
                 new_count += 1
 
-            log.info(f"[Indeed]   Page {page_num}: {len(cards)} cards → {new_count} new")
+            log.info(f"[Indeed]   Page {page_num}: {len(cards)} cards → +{new_count} new ({len(kw_jobs)} total)")
 
             if new_count == 0:
                 empty_pages += 1
@@ -336,7 +336,7 @@ def _scrape_keyword(browser, kw: str, max_pages: int) -> list:
                     log.info(f"[Indeed]   No new jobs for 2 pages, stopping")
                     break
                 start += 10
-                time.sleep(random.uniform(2, 4))
+                time.sleep(random.uniform(0.5, 1))
                 continue
 
             empty_pages = 0
@@ -371,11 +371,11 @@ def scrape_indeed(browser, keywords: list[str], max_pages: int = 0) -> list:
             kw_jobs = []
 
         all_jobs.extend(kw_jobs)
-        log.info(f"[Indeed] {kw} → {len(kw_jobs)} jobs")
+        log.info(f"[Indeed] {kw}: {len(kw_jobs)} jobs")
 
         # Delay between keywords
         if idx < len(keywords):
-            time.sleep(random.uniform(4, 8))
+            time.sleep(random.uniform(1, 2))
 
     # ── Global dedup by (title, company) ──
     seen = set()
