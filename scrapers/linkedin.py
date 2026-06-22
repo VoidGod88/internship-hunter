@@ -19,19 +19,21 @@ _SELECTOR = "li[data-occludable-job-id]"
 
 def _check_session(page):
     """Verify LinkedIn session is valid. Check URL AND page content.
-    Returns (is_ok: bool, is_challenge: bool)."""
+    Returns (is_ok: bool, is_challenge: bool).
+    Fast path: 'feed' in URL → skip body check entirely."""
     try:
         current = page.url.lower()
+        # Fast wins: feed = definitely logged in
+        if "feed" in current or "jobs/search" in current or current.endswith("linkedin.com/"):
+            return True, False
         if "login" in current:
             log.warning("[LinkedIn]   Not logged in! Cookies may be expired.")
             log.warning("[LinkedIn]   Please run: python linkedin_login.py")
             return False, False
-
         # Check URL for known challenge pages
         if "checkpoint" in current or "challenge" in current:
             return False, True
-
-        # Also check page body text for security challenges (some use generic URLs)
+        # Slow path: only check body if URL looks ambiguous
         try:
             body = page.inner_text("body").lower()
             challenge_keywords = [
@@ -58,10 +60,11 @@ def _is_challenge_page(page) -> bool:
 
 def _wait_for_challenge_clear(page, timeout: int = 120) -> bool:
     """Wait for user to manually complete security challenge in the browser.
-    Polls every 2s. Checks stop flag. Returns True if challenge cleared."""
+    Polls every 1s. Checks stop flag. Returns True if challenge cleared."""
     log.info("[LinkedIn]  ⏳ 安全验证页面 — 请在浏览器中手动完成验证...")
     log.info("[LinkedIn]     超时 120s，验证通过后自动继续")
     deadline = time.time() + timeout
+    last_heartbeat = 0
     while time.time() < deadline:
         try:
             check_stop()
@@ -72,7 +75,12 @@ def _wait_for_challenge_clear(page, timeout: int = 120) -> bool:
             log.info("[LinkedIn]  ✅ 安全验证已通过，继续...")
             time.sleep(1)  # brief settle
             return True
-        time.sleep(2)
+        # Heartbeat every 10s so user knows we're alive
+        if time.time() - last_heartbeat > 10:
+            remaining = int(deadline - time.time())
+            log.info(f"[LinkedIn]  ⏳ 等待验证中... 还剩 {remaining}s")
+            last_heartbeat = time.time()
+        time.sleep(1)
     log.warning("[LinkedIn]  ⏰ 安全验证等待超时，跳过 LinkedIn")
     return False
 
