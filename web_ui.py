@@ -3177,6 +3177,8 @@ async def api_analyze(job_id: int, force: bool = False):
         if result.get("description"):
             update_job_description(job_id, result["description"])
 
+        _invalidate_caches()  # refresh so subsequent /api/jobs calls return latest data
+
         return JSONResponse({
             "success": True, "cached": False,
             "detail": detail, "match": match,
@@ -3242,6 +3244,7 @@ def _run_analyze_all():
         log.exception("[AnalyzeAll] Fatal error")
     finally:
         _analyze_all_state["running"] = False
+        _invalidate_caches()  # refresh so /api/jobs returns latest cv_match data
 
 
 @app.post("/api/analyze-all")
