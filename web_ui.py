@@ -109,13 +109,13 @@ def _pipe_reader(stream: Optional[io.BufferedReader], log_path: Path):
     if not stream:
         return
     try:
-        with open(log_path, "a", encoding="utf-8") as f:
+        with open(log_path, "ab") as f:
             for line in iter(stream.readline, b""):
                 if not line:
                     break
-                text = line.decode("utf-8", errors="replace").rstrip("\n")
-                if text:
-                    f.write(text + "\n")
+                line = line.rstrip(b"\r\n")
+                if line:
+                    f.write(line + b"\n")
                     f.flush()
     except Exception:
         pass
