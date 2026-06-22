@@ -319,6 +319,7 @@ def run_scrapers(
             if progress_callback:
                 progress_callback(f"Scraping LinkedIn...")
             _cookie_path = Path(__file__).parent / "cookies" / "linkedin.json"
+            page = None
             try:
                 page = scrapers.base.BaseScraper.init_page(
                     browser,
@@ -337,6 +338,13 @@ def run_scrapers(
                     log.warning(f"[LinkedIn] Failed to save cookies: {_e}")
             except Exception as e:
                 log.error(f"LinkedIn error: {e}")
+            finally:
+                if page is not None and hasattr(page, '_hunter_ctx'):
+                    try:
+                        page._hunter_ctx.close()
+                        log.info("[LinkedIn] Context closed")
+                    except Exception:
+                        pass
             done += 1
 
         # Check stop flag
@@ -351,6 +359,7 @@ def run_scrapers(
             if progress_callback:
                 progress_callback("Scraping PolyU Job Board...")
             _polyu_cookie_path = Path(__file__).parent / "cookies" / "polyu.json"
+            page = None
             try:
                 page = scrapers.base.BaseScraper.init_page(
                     browser,
@@ -369,6 +378,13 @@ def run_scrapers(
                     log.warning(f"[PolyU] Failed to save cookies: {_e}")
             except Exception as e:
                 log.error(f"PolyU error: {e}")
+            finally:
+                if page is not None and hasattr(page, '_hunter_ctx'):
+                    try:
+                        page._hunter_ctx.close()
+                        log.info("[PolyU] Context closed")
+                    except Exception:
+                        pass
             done += 1
 
         # Check stop flag
@@ -382,12 +398,20 @@ def run_scrapers(
         if config.scraper_jobsdb:
             if progress_callback:
                 progress_callback(f"Scraping JobsDB...")
+            page = None
             try:
                 page = scrapers.base.BaseScraper.init_page(browser)
                 jj = scrapers.scrape_jobsdb(page, keywords, max_pages=0)
                 all_jobs += jj
             except Exception as e:
                 log.error(f"JobsDB error: {e}")
+            finally:
+                if page is not None and hasattr(page, '_hunter_ctx'):
+                    try:
+                        page._hunter_ctx.close()
+                        log.info("[JobsDB] Context closed")
+                    except Exception:
+                        pass
             done += 1
 
         # Check stop flag
@@ -420,12 +444,20 @@ def run_scrapers(
         if config.scraper_efc:
             if progress_callback:
                 progress_callback(f"Scraping eFinancialCareers...")
+            page = None
             try:
                 page = scrapers.base.BaseScraper.init_page(browser)
                 ej = scrapers.scrape_efc(page, keywords)
                 all_jobs += ej
             except Exception as e:
                 log.error(f"eFC error: {e}")
+            finally:
+                if page is not None and hasattr(page, '_hunter_ctx'):
+                    try:
+                        page._hunter_ctx.close()
+                        log.info("[eFC] Context closed")
+                    except Exception:
+                        pass
             done += 1
 
         browser.close()
