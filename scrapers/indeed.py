@@ -242,6 +242,7 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
     for kw in keywords:
         kw_jobs = []
         seen_jk = set()
+        kw_parts = [p.strip().lower() for p in kw.replace('+', ' ').split() if p.strip()]
         # ── 请求监控：记录所有网络请求（帮助调试"点到apply"问题） ──
         suspicious_requests = []
         import re
