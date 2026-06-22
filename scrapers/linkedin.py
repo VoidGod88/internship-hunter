@@ -18,19 +18,36 @@ _SELECTOR = "li[data-occludable-job-id]"
 
 
 def _check_session(page) -> bool:
-    """Verify LinkedIn session is valid. If not, warn and return False."""
+    """Verify LinkedIn session is valid. Check URL AND page content."""
     try:
         current = page.url.lower()
         if "login" in current:
             log.warning("[LinkedIn]   Not logged in! Cookies may be expired.")
             log.warning("[LinkedIn]   Please run: python linkedin_login.py")
             return False
+
+        # Check URL for known challenge pages
         if "checkpoint" in current or "challenge" in current:
-            log.warning("[LinkedIn]   ⚠️ Security checkpoint detected!")
-            log.warning("[LinkedIn]   Session flagged. Please re-acquire cookies:")
-            log.warning("[LinkedIn]     python linkedin_login.py")
-            log.warning("[LinkedIn]   Then re-run the scraper.")
+            log.warning("[LinkedIn]   ⚠️ Security checkpoint page detected (in URL)!")
+            log.warning("[LinkedIn]   Re-acquire session: python linkedin_cookies.py --force")
             return False
+
+        # Also check page body text for security challenges (some use generic URLs)
+        try:
+            body = page.inner_text("body").lower()
+            challenge_keywords = [
+                "security check", "verify you're a human", "are you a real person",
+                "please verify", "let's do a quick security check",
+                "press and hold", "cloudflare", "checking your browser",
+                "before you continue", "captcha",
+            ]
+            for kw in challenge_keywords:
+                if kw in body:
+                    log.warning(f"[LinkedIn]   ⚠️ Security challenge page: '{kw}' detected in page!")
+                    log.warning("[LinkedIn]   Open the browser, complete the challenge manually, then re-run.")
+                    return False
+        except Exception:
+            pass
     except Exception:
         pass
     return True
@@ -270,10 +287,14 @@ def scrape_linkedin(page, keywords: list[str]) -> list:
     if "feed" not in current and "linkedin.com" not in current:
         log.info("[LinkedIn]   Establishing session (navigating to feed/)")
         try:
-            page.goto("https://www.linkedin.com/feed/", timeout=30000)
+            page.goto("https://www.linkedin.com/feed/", timeout=45000)
             page.wait_for_url("**/feed/**", timeout=15000)
         except Exception as e:
-            log.warning(f"[LinkedIn]   Feed navigation timeout (may already be logged in): {e}")
+            log.warning(f"[LinkedIn]   Feed navigation failed: {e}")
+            log.info(f"[LinkedIn]   Landed on: {page.url}")
+            # Check if we landed on a challenge page
+            if not _check_session(page):
+                return []
 
     jobs: list = []
     log.info(f"[LinkedIn] Searching {len(keywords)} keywords...")
