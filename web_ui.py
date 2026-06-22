@@ -3264,4 +3264,28 @@ async def api_analyze_all_status():
 
 
 if __name__ == "__main__":
+    import signal
+
+    def _shutdown_handler(signum, frame):
+        """Kill child processes on Ctrl+C before exiting."""
+        pid = os.getpid()
+        log.info(f"[Shutdown] Received signal {signum}, cleaning up...")
+        for name, proc in [("pipeline", _pipeline_proc), ("linkedin_login", _linkedin_login_proc),
+                           ("polyu_login", _polyu_login_proc), ("indeed_login", _indeed_login_proc)]:
+            if proc and proc.poll() is None:
+                try:
+                    if sys.platform == "win32":
+                        subprocess.run(f"taskkill /F /T /PID {proc.pid}", shell=True,
+                                       capture_output=True, timeout=5)
+                    else:
+                        import os as _os
+                        _os.killpg(_os.getpgid(proc.pid), 9)
+                    log.info(f"[Shutdown] Killed {name} (PID={proc.pid})")
+                except Exception:
+                    pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown_handler)
+    signal.signal(signal.SIGTERM, _shutdown_handler)
+
     uvicorn.run(app, host="0.0.0.0", port=7861)

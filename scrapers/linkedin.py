@@ -17,20 +17,19 @@ log = logging.getLogger("hunter")
 _SELECTOR = "li[data-occludable-job-id]"
 
 
-def _check_session(page) -> bool:
-    """Verify LinkedIn session is valid. Check URL AND page content."""
+def _check_session(page):
+    """Verify LinkedIn session is valid. Check URL AND page content.
+    Returns (is_ok: bool, is_challenge: bool)."""
     try:
         current = page.url.lower()
         if "login" in current:
             log.warning("[LinkedIn]   Not logged in! Cookies may be expired.")
             log.warning("[LinkedIn]   Please run: python linkedin_login.py")
-            return False
+            return False, False
 
         # Check URL for known challenge pages
         if "checkpoint" in current or "challenge" in current:
-            log.warning("[LinkedIn]   ⚠️ Security checkpoint page detected (in URL)!")
-            log.warning("[LinkedIn]   Re-acquire session: python linkedin_cookies.py --force")
-            return False
+            return False, True
 
         # Also check page body text for security challenges (some use generic URLs)
         try:
@@ -43,14 +42,39 @@ def _check_session(page) -> bool:
             ]
             for kw in challenge_keywords:
                 if kw in body:
-                    log.warning(f"[LinkedIn]   ⚠️ Security challenge page: '{kw}' detected in page!")
-                    log.warning("[LinkedIn]   Open the browser, complete the challenge manually, then re-run.")
-                    return False
+                    return False, True
         except Exception:
             pass
     except Exception:
         pass
-    return True
+    return True, False
+
+
+def _is_challenge_page(page) -> bool:
+    """Quick check: are we on a security challenge page?"""
+    _, is_challenge = _check_session(page)
+    return is_challenge
+
+
+def _wait_for_challenge_clear(page, timeout: int = 120) -> bool:
+    """Wait for user to manually complete security challenge in the browser.
+    Polls every 2s. Checks stop flag. Returns True if challenge cleared."""
+    log.info("[LinkedIn]  ⏳ 安全验证页面 — 请在浏览器中手动完成验证...")
+    log.info("[LinkedIn]     超时 120s，验证通过后自动继续")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            check_stop()
+        except InterruptedError:
+            log.info("[LinkedIn]  ⏹ Stop requested while waiting for challenge")
+            raise
+        if not _is_challenge_page(page):
+            log.info("[LinkedIn]  ✅ 安全验证已通过，继续...")
+            time.sleep(1)  # brief settle
+            return True
+        time.sleep(2)
+    log.warning("[LinkedIn]  ⏰ 安全验证等待超时，跳过 LinkedIn")
+    return False
 
 
 def _check_no_results(page) -> bool:
@@ -292,17 +316,43 @@ def scrape_linkedin(page, keywords: list[str]) -> list:
         except Exception as e:
             log.warning(f"[LinkedIn]   Feed navigation failed: {e}")
             log.info(f"[LinkedIn]   Landed on: {page.url}")
-            # Check if we landed on a challenge page
-            if not _check_session(page):
+
+    # Handle security challenge — wait for user to complete it manually
+    if _is_challenge_page(page):
+        ok, _ = _check_session(page)
+        if not ok:
+            try:
+                if not _wait_for_challenge_clear(page):
+                    return []
+            except InterruptedError:
+                return []
+        # Challenge cleared, re-navigate to feed/
+        log.info("[LinkedIn]   Re-establishing session (navigating to feed/)")
+        try:
+            page.goto("https://www.linkedin.com/feed/", timeout=45000)
+            page.wait_for_url("**/feed/**", timeout=15000)
+        except Exception as e:
+            log.warning(f"[LinkedIn]   Feed re-navigation failed: {e}")
+            ok, _ = _check_session(page)
+            if not ok:
                 return []
 
     jobs: list = []
     log.info(f"[LinkedIn] Searching {len(keywords)} keywords...")
 
     # Verify session
-    if not _check_session(page):
-        log.error("[LinkedIn] Cannot scrape: not logged in")
-        return []
+    ok, is_challenge = _check_session(page)
+    if not ok:
+        if is_challenge:
+            try:
+                if not _wait_for_challenge_clear(page):
+                    return []
+            except InterruptedError:
+                return []
+            # Challenge cleared, and we're likely already on LinkedIn
+        else:
+            log.error("[LinkedIn] Cannot scrape: not logged in")
+            return []
 
     for kw in keywords:
         try:

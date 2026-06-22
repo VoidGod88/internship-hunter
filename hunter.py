@@ -702,6 +702,16 @@ def main():
         log.info(f"Done! WIE: {summary['wie_eligible']} / Total: {summary['total_processed']}")
         log.info("=" * 60)
 
+    except KeyboardInterrupt:
+        log.warning("\n[Stop] Interrupted by user (Ctrl+C)")
+        _write_status(status_file, {
+            "status": "stopped",
+            "phase": "stopped",
+            "message": "Interrupted by user",
+        })
+        _cleanup_cache(status_file)
+        sys.exit(0)
+
     except Exception as e:
         log.exception("Pipeline failed")
         _write_status(status_file, {
