@@ -20,10 +20,16 @@ _SELECTOR = "li[data-occludable-job-id]"
 def _check_session(page) -> bool:
     """Verify LinkedIn session is valid. If not, warn and return False."""
     try:
-        current = page.url
-        if "login" in current.lower():
+        current = page.url.lower()
+        if "login" in current:
             log.warning("[LinkedIn]   Not logged in! Cookies may be expired.")
             log.warning("[LinkedIn]   Please run: python linkedin_login.py")
+            return False
+        if "checkpoint" in current or "challenge" in current:
+            log.warning("[LinkedIn]   ⚠️ Security checkpoint detected!")
+            log.warning("[LinkedIn]   Session flagged. Please re-acquire cookies:")
+            log.warning("[LinkedIn]     python linkedin_login.py")
+            log.warning("[LinkedIn]   Then re-run the scraper.")
             return False
     except Exception:
         pass
@@ -167,7 +173,7 @@ def _scrape_keyword(page, kw: str) -> list:
     params.append("spellCorrectionEnabled=true")
     base_url = "https://www.linkedin.com/jobs/search/?" + "&".join(params)
 
-    log.info(f"[LinkedIn] Searching: {kw}")
+    log.info(f"[LinkedIn] Searching: {kw} | URL: {base_url}")
 
     jobs_for_kw = []
     seen_ids = set()
@@ -295,4 +301,8 @@ def scrape_linkedin(page, keywords: list[str]) -> list:
             unique.append(j)
 
     log.info(f"[LinkedIn] Total: {len(unique)} jobs")
+    if len(unique) == 0:
+        log.warning("[LinkedIn] ⚠️ 0 jobs returned — session may be flagged.")
+        log.warning("[LinkedIn]   Try re-acquiring cookies:")
+        log.warning("[LinkedIn]     python linkedin_login.py")
     return unique

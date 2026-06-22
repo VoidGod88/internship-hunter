@@ -1,13 +1,11 @@
 """
 indeed_login.py — Interactive Indeed manual login helper.
 
-Launches a HEADED Chrome browser (system install, not Playwright bundled),
-waits for the user to manually log in, then saves cookies to
-`cookies/indeed.json` for reuse by the scraper.
+Launches a headed Chrome browser, waits for user to manually log in,
+then saves cookies to `cookies/indeed.json` for reuse by the scraper.
 
 Usage:
     python indeed_login.py
-    # Or triggered from the Web UI button
 """
 import time
 import logging
@@ -29,122 +27,107 @@ def main():
     print("=" * 60)
     print()
     print("  Instructions:")
-    print("  1. Your system CHROME browser will open")
-    print("  2. Log in manually (Google/Apple/email all supported)")
-    print("  3. Complete any CAPTCHA / Cloudflare challenge if prompted")
-    print("  4. After successful login, come back to this terminal")
-    print("  5. Press Enter to save cookies")
+    print("  1. A Chrome browser window will open")
+    print("  2. Log in manually (Google/Apple/email)")
+    print("  3. After login, verify you see your name in the top-right")
+    print("  4. Come back to this terminal and press Enter")
     print()
     print("  " + "=" * 56)
     print()
 
     with sync_playwright() as pw:
-        # Use launch() (NOT launch_persistent_context) because we need
-        # ignore_default_args to strip --no-sandbox / --enable-automation
-        # which Cloudflare detects as automation.
         browser = pw.chromium.launch(
             headless=False,
-            channel="chrome",
             args=[
                 "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
+                "--disable-features=IsolateOrigins,site-per-process",
             ],
-            ignore_default_args=["--enable-automation", "--no-sandbox"],
         )
         ctx = browser.new_context(
-            viewport={"width": 1280, "height": 900},
+            viewport={"width": 1440, "height": 900},
             locale="en-US",
+            timezone_id="Asia/Hong_Kong",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
         )
         page = ctx.new_page()
 
-        # Add stealth init script
-        page.add_init_script("""
-            () => {
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-                Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
-                delete navigator.__proto__.webdriver;
-            }
-        """)
-
-        # Go to Indeed HK login page (with error handling)
+        # Go to Indeed HK login page
         print("  [Opening] Indeed HK login page...")
         try:
-            page.goto("https://hk.indeed.com/account/login", timeout=30_000, wait_until="domcontentloaded")
-            print(f"  [OK] Page opened: {page.url}")
+            page.goto(
+                "https://hk.indeed.com/account/login",
+                timeout=60_000,
+                wait_until="load",
+            )
+            print(f"  [OK] Loaded: {page.url}")
         except Exception as e:
-            print(f"  [ERROR] Navigation failed: {e}")
+            print(f"  [WARN] {e}")
             print(f"  Current URL: {page.url}")
-            input("  Press Enter to close browser and exit...")
-            browser.close()
-            return
-        except Exception:
-            pass
 
-        time.sleep(3)
+        # Wait for page to settle (Cloudflare / redirects)
+        time.sleep(5)
+        print(f"  [Status] Current page: {page.title()}")
+        print(f"  [Status] URL: {page.url}")
 
-        # Check for Cloudflare / security challenges
-        page_text = ""
-        try:
-            page_text = page.content().lower()
-        except Exception:
-            pass
-
-        if "cloudflare" in page_text or "additional verification" in page_text or "just a moment" in page.title():
-            print("  [!] Cloudflare verification detected!")
-            print("      Please solve the CAPTCHA/verification in the browser.")
-            print("      After passing, click 'Return home' or wait to be redirected.")
+        # Check for Cloudflare
+        title_lower = page.title().lower()
+        if "just a moment" in title_lower or "attention required" in title_lower:
+            print("  [!] Cloudflare / security challenge detected!")
+            print("      Please solve the challenge in the browser window.")
             print()
-        elif "/login" not in page.url and "account/login" not in page.url:
-            print(f"  [OK] Navigated to: {page.url}")
-        else:
-            print(f"  [OK] Login page loaded: {page.url}")
 
         print()
-        print("  >>> Please log in to Indeed in the browser window <<<")
-        print("  (If you see a Cloudflare challenge, solve it FIRST, then log in)")
+        print("  >>> Log in to Indeed in the browser <<<")
+        print("  (Google, Apple, or email — complete all steps)")
         print()
-        print("  " + "-" * 56)
 
-        # Wait for user to press Enter
-        input("  Press Enter after you have logged in... ")
+        # Wait for user
+        input("  Press Enter after successful login... ")
 
-        # Verify login
+        # Verify login by navigating to profile
         print()
-        print("  Verifying login status (navigating to profile page)...")
-        try:
-            page.goto("https://profile.indeed.com/", timeout=15_000, wait_until="domcontentloaded")
-            time.sleep(3)
-        except Exception as e:
-            log.warning(f"Navigation after login failed: {e}")
+        print("  [Verifying] Checking login status...")
+        for attempt in range(3):
+            try:
+                page.goto(
+                    "https://profile.indeed.com/",
+                    timeout=30_000,
+                    wait_until="load",
+                )
+                time.sleep(3)
+                break
+            except Exception as e:
+                print(f"  [Retry {attempt+1}] {e}")
+                time.sleep(2)
 
         current_url = page.url
-        log.info(f"URL after verification: {current_url}")
+        is_logged_in = "/login" not in current_url and "/signin" not in current_url
 
-        if "/login" in current_url or "/signin" in current_url:
-            print()
-            print("  [Warning] You do NOT appear to be logged in.")
-            print(f"  Current URL: {current_url}")
+        if is_logged_in:
+            title = page.title()
+            print(f"  [OK] Logged in! Page: '{title}'")
+            print(f"  [OK] URL: {current_url}")
+        else:
+            print(f"  [WARN] May not be logged in. URL: {current_url}")
             confirm = input("  Save cookies anyway? (y/n): ")
             if confirm.strip().lower() != "y":
-                print("  Aborted. Cookies NOT saved.")
+                print("  Aborted.")
                 browser.close()
                 return
-        else:
-            print(f"  [OK] Logged in! URL: {current_url}")
 
-        print("  Waiting 5 seconds for cookies to settle...\n")
-        time.sleep(5)
+        time.sleep(2)
 
-        # Save cookies + localStorage + sessionStorage
+        # Save cookies
         COOKIE_PATH.parent.mkdir(parents=True, exist_ok=True)
         ctx.storage_state(path=str(COOKIE_PATH))
-        print(f"  [Saved] Cookies saved to: {COOKIE_PATH}")
-        print("  The scraper will now load these cookies automatically.")
-        print()
+        print(f"  [Saved] {COOKIE_PATH}")
 
         browser.close()
-        print("  [Done] Browser closed. You're all set!")
+        print("  [Done]")
         print("=" * 60)
 
 

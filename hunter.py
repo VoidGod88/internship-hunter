@@ -300,8 +300,13 @@ def run_scrapers(
         except Exception:
             pass
 
+    _need_visible = config.scraper_indeed  # Indeed needs non-headless for Cloudflare
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = pw.chromium.launch(
+            headless=not _need_visible,
+            args=["--disable-blink-features=AutomationControlled", "--disable-infobars"],
+            ignore_default_args=["--enable-automation", "--no-sandbox"],
+        )
 
         # Check stop flag
         try:
@@ -398,8 +403,8 @@ def run_scrapers(
             if progress_callback:
                 progress_callback(f"Scraping Indeed ({len(keywords)} keywords)...")
             try:
-                page = scrapers.base.BaseScraper.init_page(browser)
-                ij = scrapers.scrape_indeed(page, keywords, max_pages=0)
+                # Indeed uses per-keyword contexts on main browser (non-headless for Cloudflare)
+                ij = scrapers.scrape_indeed(browser, keywords, max_pages=0)
                 all_jobs += ij
             except Exception as e:
                 log.error(f"Indeed error: {e}")

@@ -156,9 +156,10 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int =
         else:
             scrape_url = base_url
 
+        log.info(f"[JobsDB] Searching: {kw} | URL: {scrape_url}")
         kw_jobs = _scrape_jobsdb_keyword(page, kw, scrape_url, max_pages=0, max_jobs=0)
         all_jobs.extend(kw_jobs)
-        log.info(f"[JobsDB] Searching: {kw} → {len(kw_jobs)} jobs")
+        log.info(f"[JobsDB] {kw} → {len(kw_jobs)} jobs")
         time.sleep(random.uniform(2, 4))
 
     # Deduplicate by (title, company)

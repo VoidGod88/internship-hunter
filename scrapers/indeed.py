@@ -1,88 +1,45 @@
 """
-scrapers/indeed.py — Indeed HK scraper using Playwright.
-One keyword per search, paginate via start=N URL param.
+scrapers/indeed.py — Indeed HK scraper.
+Per-keyword fresh context (matches debug_indeed.py behaviour) to
+avoid Indeed's anti-bot detection that flags a shared browser session.
+One keyword per search, paginate via Indeed's Next link + start=N fallback.
 URL built dynamically from config filters (Settings UI).
-
-New DOM structure (2024+): [data-jk] elements ARE the <a> tags with title <span> inside.
 """
 import logging
 import random
 import time
-import json
 from pathlib import Path
+
 from .base import BaseScraper
-from config import check_stop, config
-from stealth import Stealth
+from config import config
 
 log = logging.getLogger("hunter")
 _COOKIE_PATH = Path(__file__).parent.parent / "cookies" / "indeed.json"
 
-# ── Page evaluation JS: bulk-extract all job cards (Indeed 2026) ──
-# Key insight: Indeed mixes organic results, sponsored jobs, and "jobs similar to
-# what you browsed" on the same page.  Text-based filtering ("Easily apply") is
-# unreliable.  Instead we locate the PRIMARY results container and only extract
-# [data-jk] cards that live inside it.
-#
-# Organic results are inside:
-#   <ul id="jobsearch-SerpJobList"> or <div data-mosaic-id="provider"> or
-#   the first <tbody> of the main mosaic table.
-# Recommended/similar sections live OUTSIDE this container.
-_EXTRACT_CARDS_JS = r"""() => {
+# ── Anti-detection init script (runs on every page navigation) ──
+_ANTI_DETECT_JS = """
+    () => {
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+    }
+"""
+
+# ── Extraction JS (same logic as debug_indeed.py) ──
+_EXTRACT_CARDS = r"""() => {
     const results = [];
-
-    // ── Step 1: locate the primary organic-results container ──
-    let primaryContainer = null;
-
-    // Strategy A: Indeed's own SerpJobList <ul> (most reliable in 2026)
-    primaryContainer = document.getElementById('jobsearch-SerpJobList');
-
-    // Strategy B: mosaic provider div
-    if (!primaryContainer) {
-        primaryContainer = document.querySelector(
-            'div[data-mosaic-id="provider"]'
-        );
-    }
-
-    // Strategy C: first tbody inside the main results table
-    if (!primaryContainer) {
-        const table = document.querySelector(
-            'table.mosaic-container, table[id*="results"], '
-            + 'table[class*="jobsearch"]'
-        );
-        if (table) {
-            const tbodies = table.querySelectorAll('tbody');
-            if (tbodies.length > 0) {
-                primaryContainer = tbodies[0];
-            } else {
-                primaryContainer = table;
-            }
-        }
-    }
-
-    // Fallback: just use the <ul> that holds most job cards
-    if (!primaryContainer) {
-        const uls = document.querySelectorAll('ul');
-        for (const ul of uls) {
-            const jks = ul.querySelectorAll('[data-jk]');
-            if (jks.length >= 3) { primaryContainer = ul; break; }
-        }
-    }
-
-    // Only look for cards INSIDE the primary container.
-    // Cards outside are recommended/sponsored/sidebar content.
-    const cards = primaryContainer
-        ? primaryContainer.querySelectorAll('[data-jk]')
-        : document.querySelectorAll('[data-jk]');
-
+    const cards = document.querySelectorAll('[data-jk]');
     for (const card of cards) {
         const jk = card.getAttribute('data-jk');
         if (!jk) continue;
 
-        // ── Title: span[title] attribute or aria-label fallback ──
+        // ── Title ──
         const spanTitle = card.querySelector('span[title]');
         let title = '';
         if (spanTitle) {
             title = (spanTitle.getAttribute('title') || spanTitle.textContent || '').trim();
+            // Strip "Easily apply" suffix
+            title = title.replace(/\s*Easily\s*apply\s*$/i, '').trim();
         }
         if (!title) {
             const label = card.getAttribute('aria-label') || '';
@@ -90,73 +47,59 @@ _EXTRACT_CARDS_JS = r"""() => {
             if (m) title = m[1].trim();
         }
         if (!title || title.length < 3) continue;
-
         const tl = title.toLowerCase();
-        if (['sign in', 'register', 'create account', 'upload cv', 'home',
-             'jobs', 'company reviews', 'salary guide', 'employers / post job',
-             'employers'].includes(tl)) continue;
+        if (['sign in','register','create account','upload cv','home',
+             'jobs','company reviews','salary guide'].includes(tl)) continue;
 
-        // ── Company name extraction ──
-        // DOM: TD.resultContent > (DIV.jobCardContainer) >
-        //       (H3.jobTitle > A[data-jk]) + (div.company line)
-        // The company name is usually a sibling link near the title,
-        // often inside a [data-testid="company-name"] or similar.
+        // ── Company ──
         let company = '(unknown)';
-        const td = card.closest('td[class*="resultContent"]')
-                 || card.closest('td')
-                 || card.closest('[class*="result"]')
-                 || card.closest('li')
-                 || card.closest('[class*="card"]');
-
+        const td = card.closest('td');
         if (td) {
-            // Try specific Indeed selectors first (fastest)
+            // Strategy 1: company-specific elements
             const companyEl = td.querySelector(
-                '[data-testid="company-name"], '
-                + '[class*="companyName"], '
-                + '[class*="company-name"], '
-                + 'a[data-toggle="jobdetail-company"]'
+                '[data-testid="company-name"], [class*="companyName"], [class*="company_name"], '
+                + '[class*="CompanyName"], span[class*="css-"][class*="company"]'
             );
             if (companyEl) {
-                const ct = (companyEl.textContent || '').trim();
-                if (ct && ct.length >= 2 && ct.length <= 60) company = ct;
+                company = companyEl.textContent.trim();
             }
 
-            // Fallback: scan for the first plausible text node / link
-            // that isn't the title, location, date, or metadata
+            // Strategy 2: extract from metadata div (css-u74ql7)
             if (company === '(unknown)') {
-                const candidates = td.querySelectorAll('a, span, div');
-                for (const el of candidates) {
-                    if (el === spanTitle || el.contains(card) || card.contains(el)) continue;
-                    const st = (el.textContent || '').trim();
-                    if (!st || st.length < 2 || st.length > 60) continue;
-                    if (st === title) continue;
-                    // Skip location strings
-                    if (/^(Hong Kong|Kowloon|New Territories|Central|Wan Chai|TST|Kwai Chung|Sha Tin|Tsuen Wan)/i.test(st)) continue;
-                    // Skip metadata badges
-                    if (/^(Full.?time|Permanent|Contract|Part.?time|Shift|Remote|\d+\+?$)/i.test(st)) continue;
-                    if (/Easy\s*apply|[0-9]+\s*(day|hour|week|month)s?\s*ago|New/i.test(st)) continue;
-                    // Skip rating like "3.5 ★"
-                    if (/^\d[\d.]*\s*[★☆]/.test(st)) continue;
-                    // Skip heavily-styled utility elements (CSS framework)
-                    const cls = (el.className || '').toString();
-                    if ((cls.match(/css-\w+/g) || []).length >= 4) continue;
-                    company = st;
+                const metaDiv = td.querySelector('div[class*="css-u74ql7"], div[class*="company"]');
+                if (metaDiv) {
+                    const raw = (metaDiv.textContent || '').trim();
+                    const parts = raw.split(/\b(Hong\s*Kong|Kowloon|Kwun\s*Tong|New\s*Territories|Central|Wan\s*Chai|Causeway\s*Bay|Tsim\s*Sha\s*Tsui|Taikoo|TST|Mong\s*Kok|Sha\s*Tin|Tsuen\s*Wan|Yuen\s*Long|Kwai\s*Chung|Ap\s*Lei\s*Chau|Full.?time|Part.?time|Permanent|Contract|Remote|Shift|Hybrid|Temporary)\b/i);
+                    if (parts.length > 1) {
+                        company = parts[0].trim();
+                    } else {
+                        company = raw.length <= 60 ? raw : raw.substring(0, 60).trim();
+                    }
+                }
+            }
+
+            // Strategy 3: fallback — first sibling div text
+            if (company === '(unknown)') {
+                const divs = td.querySelectorAll(':scope > div');
+                for (const div of divs) {
+                    if (div.contains(card)) continue;
+                    const text = (div.textContent || '').trim();
+                    if (!text || text.length < 2 || text.length > 60) continue;
+                    company = text;
                     break;
                 }
             }
         }
-
         const url = 'https://hk.indeed.com/viewjob?jk=' + jk;
         results.push({jk, title, company, url});
     }
-
     return results;
 }"""
 
 
 def _dismiss_job_alert_popup(page) -> bool:
     """Detect and dismiss Indeed Job Alert popup.
-    Tries: Activate button → close button → Maybe later → ESC.
+    Tries: close button → Activate button → Maybe later → skip.
     Returns True if a popup was found and handled.
     """
     try:
@@ -218,95 +161,136 @@ def _dismiss_job_alert_popup(page) -> bool:
         return False
 
 
-def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
-    """
-    Scrape Indeed HK for jobs.
-    One search per keyword, paginate via start=N URL param.
-    max_pages: 0 = unlimited, else stop after N pages.
-    """
-    # ── Load Indeed cookies (if available) ──────────────────────────────
+def _check_page_ok(page) -> bool:
+    """Check if page is a valid search results page (not challenge/blocked)."""
+    try:
+        title = page.title()
+        url_lower = (page.url or "").lower()
+        if "just a moment" in title.lower():
+            return False
+        if "attention required" in title.lower():
+            return False
+        if "captcha" in title.lower():
+            return False
+        if "request blocked" in title.lower():
+            return False
+        # Also check body for cloudflare block that doesn't change title
+        if "request blocked" in page.content()[:5000].lower():
+            return False
+        if "/jobs" not in url_lower:
+            return False
+        return True
+    except Exception:
+        return True  # give benefit of doubt
+
+
+def _check_login(page) -> bool:
+    """Check if redirected to login page."""
+    try:
+        return any(s in page.url.lower() for s in ["/signin", "/login", "/account/login"])
+    except Exception:
+        return False
+
+
+def _build_url(kw: str) -> str:
+    """Build Indeed HK search URL from config filters."""
+    params = [f"q={kw.replace(' ', '+')}"]
+    if config.id_date_range:
+        params.append(f"fromage={config.id_date_range}")
+    if config.id_job_type:
+        params.append(f"jt={config.id_job_type}")
+    if config.id_sort_by:
+        params.append(f"sort={config.id_sort_by}")
+    if config.id_radius:
+        params.append(f"radius={config.id_radius}")
+    params.append("l=Hong+Kong")
+    if config.id_education:
+        valid = {"HFDVW", "EXSNN", "6QC5F", "MR89S"}
+        codes = [c for c in config.id_education if c in valid]
+        if codes:
+            if len(codes) == 1:
+                sc_val = f"0kf%3Aattr%28{codes[0]}%29%3B"
+            else:
+                sc_val = f"0kf%3Aattr%28{'%7C'.join(codes)}%252COR%29%3B"
+            params.append(f"sc={sc_val}")
+    return "https://hk.indeed.com/jobs?" + "&".join(params)
+
+
+def _scrape_keyword(browser, kw: str, max_pages: int) -> list:
+    """Scrape a single keyword — creates fresh context on shared non-headless browser."""
+    kw_jobs: list = []
+    seen_jk = set()
+    url = _build_url(kw)
+    log.info(f"[Indeed] Searching: {kw} | URL: {url}")
+
+    # ── Create fresh context per keyword (key anti-detection measure) ──
+    ctx_kwargs = dict(
+        viewport={"width": 1280, "height": 900},
+        locale="en-US",
+    )
     if _COOKIE_PATH.exists():
         try:
-            with open(_COOKIE_PATH) as f:
-                storage = json.load(f)
-            page.context.add_cookies(storage.get("cookies", []))
-            log.info(f"[Indeed] Loaded cookies from {_COOKIE_PATH}")
+            ctx_kwargs["storage_state"] = str(_COOKIE_PATH)
         except Exception as e:
-            log.warning(f"[Indeed] Failed to load cookies: {e}")
-    else:
-        log.info(f"[Indeed] No cookie file found at {_COOKIE_PATH} (run indeed_login.py first)")
+            log.warning(f"[Indeed]   Failed to load storage_state: {e}")
 
-    all_jobs = []
-    log.info(f"[Indeed] Searching {len(keywords)} keywords...")
+    ctx = browser.new_context(**ctx_kwargs)
+    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    page.add_init_script(_ANTI_DETECT_JS)
 
-    for kw in keywords:
-        kw_jobs = []
-        seen_jk = set()
-        kw_parts = [p.strip().lower() for p in kw.replace('+', ' ').split() if p.strip()]
-        # ── 请求监控：记录所有网络请求（帮助调试"点到apply"问题） ──
-        suspicious_requests = []
-        import re
-        # Build URL from config filters
-        params = [f"q={kw.replace(' ', '+')}"]
-        if config.id_date_range:
-            params.append(f"fromage={config.id_date_range}")
-        if config.id_job_type:
-            params.append(f"jt={config.id_job_type}")
-        if config.id_sort_by:
-            params.append(f"sort={config.id_sort_by}")
-        if config.id_radius:
-            params.append(f"radius={config.id_radius}")
-        params.append("l=Hong+Kong")
-        # Indeed education filter: encrypted sc= parameter
-        # Codes: HFDVW=Bachelor, EXSNN=Master, 6QC5F=PhD, MR89S=Diploma
-        if config.id_education:
-            valid = {"HFDVW","EXSNN","6QC5F","MR89S"}
-            codes = [c for c in config.id_education if c in valid]
-            if codes:
-                if len(codes) == 1:
-                    sc_val = f"0kf%3Aattr%28{codes[0]}%29%3B"
-                else:
-                    sc_val = f"0kf%3Aattr%28{'%7C'.join(codes)}%252COR%29%3B"
-                params.append(f"sc={sc_val}")
-                log.info(f"[Indeed]   education sc={sc_val}")
-        base_url = "https://hk.indeed.com/jobs?" + "&".join(params)
-        log.info(f"[Indeed] Searching: {kw} | URL: {base_url}")
+    try:
         start = 0
         page_num = 0
+        empty_pages = 0
 
         while True:
-            url = base_url + f"&start={start}" if start > 0 else base_url
+            page_num += 1
+            if 0 < max_pages < page_num:
+                break
+
+            if page_num == 1:
+                next_url = url
+            else:
+                # Try Indeed's Next link first
+                try:
+                    next_link = page.evaluate(r"""() => {
+                        const el = document.querySelector(
+                            'a[data-testid="pagination-page-next"], a[aria-label*="Next"], a[aria-label*="\u4e0b\u4e00"]'
+                        );
+                        return el ? el.href : null;
+                    }""")
+                except Exception:
+                    next_link = None
+
+                if next_link:
+                    next_url = next_link
+                    log.info(f"[Indeed]   Page {page_num}: next link → {next_url}")
+                else:
+                    next_url = f"{url}&start={start}"
+                    log.info(f"[Indeed]   Page {page_num}: start={start} → {next_url}")
+
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-                page.wait_for_timeout(3000)
+                page.goto(next_url, timeout=30_000, wait_until="domcontentloaded")
+                time.sleep(3)
             except Exception as e:
                 log.warning(f"[Indeed]   goto error: {e}")
                 break
 
-            # ── Dismiss Job Alert popup ──
-            _dismiss_job_alert_popup(page)
-
-            # ── Detect homepage redirect ──
-            current_url = page.url
-            if "/jobs" not in current_url or current_url.rstrip("/").endswith("/hk"):
-                log.warning(f"[Indeed]   Redirected to homepage! URL: {current_url}")
+            # ── Check login redirect ──
+            if _check_login(page):
+                log.warning("[Indeed]   Redirected to login!")
                 break
 
-            # ── Detect "no results" ──
-            try:
-                body_text = page.inner_text("body")
-                no_result_keywords = [
-                    "找不到", "no jobs found", "No matching jobs",
-                    "沒有相關", "没有找到", "0 jobs in", "no results",
-                ]
-                if any(kw_no in body_text for kw_no in no_result_keywords):
-                    log.info(f"[Indeed]   No results page for '{kw}' (start={start})")
-                    break
-            except Exception:
-                pass
+            # ── Dismiss popup ──
+            _dismiss_job_alert_popup(page)
+
+            # ── Check for anti-bot page ──
+            if not _check_page_ok(page):
+                log.warning(f"[Indeed]   Blocked by anti-bot challenge!")
+                break
 
             # ── Extract cards ──
-            cards = page.evaluate(_EXTRACT_CARDS_JS)
+            cards = page.evaluate(_EXTRACT_CARDS)
             if not cards:
                 if start == 0:
                     debug_dir = Path(__file__).parent.parent / "debug"
@@ -314,65 +298,86 @@ def scrape_indeed(page, keywords: list[str], max_pages: int = 0) -> list:
                     debug_path = debug_dir / f"indeed_debug_{kw.replace(' ', '_')}.html"
                     try:
                         debug_path.write_text(page.content(), encoding="utf-8")
-                        log.warning(f"[Indeed]   No cards on first page, debug HTML: {debug_path.name}")
+                        log.warning(f"[Indeed]   No cards — debug: {debug_path.name}")
                     except Exception:
                         pass
                 else:
                     log.info(f"[Indeed]   No more jobs at start={start}, stopping")
                 break
 
-            # ── 去重：按 jk 去重，同时统计新职位数量 ──
+            # ── Dedup & make Job objects ──
             new_count = 0
             for c in cards:
                 jk = c.get("jk", "")
-                if jk and jk not in seen_jk:
-                    seen_jk.add(jk)
-                    title = c.get("title", "")
-                    company = c.get("company", "(unknown)")
-                    url = c.get("url", "")
-                    if not title or len(title) < 3:
-                        continue
-                    # 放宽标题过滤：只过滤多词关键词，且只要求任一词出现在标题或公司名中
-                    title_lower = title.lower()
-                    company_lower = company.lower()
-                    if kw_parts and len(kw_parts) >= 2:
-                        if not any(p in title_lower or p in company_lower for p in kw_parts):
-                            continue
-                    if any(skip in title_lower for skip in [
-                        "sign in", "register", "create account", "upload cv",
-                        "home", "jobs", "company reviews", "salary guide"
-                    ]):
-                        continue
-                    kw_jobs.append(BaseScraper.make_job(
-                        title, company, "Hong Kong", url, "Indeed"
-                    ))
-                    new_count += 1
+                if not jk or jk in seen_jk:
+                    continue
+                seen_jk.add(jk)
+                title = c.get("title", "")
+                company = c.get("company", "(unknown)")
+                job_url = c.get("url", "")
+                if not title or len(title) < 3:
+                    continue
+                tl = title.lower()
+                if any(skip in tl for skip in [
+                    "sign in", "register", "create account", "upload cv",
+                    "home", "jobs", "company reviews", "salary guide",
+                ]):
+                    continue
+                kw_jobs.append(BaseScraper.make_job(
+                    title, company, "Hong Kong", job_url, "Indeed"
+                ))
+                new_count += 1
+
+            log.info(f"[Indeed]   Page {page_num}: {len(cards)} cards → {new_count} new")
 
             if new_count == 0:
-                log.info(f"[Indeed]   No new jobs at start={start}, stopping")
-                break
-
-            if max_pages > 0 and page_num + 1 >= max_pages:
-                break
-
-            start += 10
-            page_num += 1
-            # 检查是否跳转到登录页（Indeed 会在翻页时要求登录）
-            try:
-                curr_url = page.url.lower()
-                if any(s in curr_url for s in ["/signin", "/login", "/account"]):
-                    log.info("[Indeed]   Redirected to login page, stopping pagination")
+                empty_pages += 1
+                if empty_pages >= 2:
+                    log.info(f"[Indeed]   No new jobs for 2 pages, stopping")
                     break
-            except Exception:
-                pass
-            time.sleep(random.uniform(3, 6))
+                start += 10
+                time.sleep(random.uniform(2, 4))
+                continue
+
+            empty_pages = 0
+            start += 10
+            time.sleep(random.uniform(2, 4))
+
+    finally:
+        # Always close the per-keyword context (browser stays alive for next keywords)
+        try:
+            ctx.close()
+        except Exception:
+            pass
+
+    return kw_jobs
+
+
+def scrape_indeed(browser, keywords: list[str], max_pages: int = 0) -> list:
+    """
+    Scrape Indeed HK for jobs.
+    Creates a fresh context per keyword on a shared non-headless browser
+    to bypass Cloudflare anti-bot detection.
+    The `browser` must be launched with headless=False.
+    """
+    all_jobs: list = []
+    log.info(f"[Indeed] Searching {len(keywords)} keywords...")
+
+    for idx, kw in enumerate(keywords, 1):
+        try:
+            kw_jobs = _scrape_keyword(browser, kw, max_pages)
+        except Exception as e:
+            log.error(f"[Indeed]   Error scraping '{kw}': {e}")
+            kw_jobs = []
 
         all_jobs.extend(kw_jobs)
-        log.info(f"[Indeed] Searching: {kw} → {len(kw_jobs)} jobs")
-        # Delay between keywords to avoid rate-limiting
-        time.sleep(random.uniform(5, 10))
+        log.info(f"[Indeed] {kw} → {len(kw_jobs)} jobs")
 
-    # Deduplicate by (title, company)
+        # Delay between keywords
+        if idx < len(keywords):
+            time.sleep(random.uniform(4, 8))
+
+    # ── Global dedup by (title, company) ──
     seen = set()
     unique = []
     for j in all_jobs:
