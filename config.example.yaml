@@ -1,9 +1,30 @@
 cv_pdf_path: D:\WorkBuddy\internship_hunter\internship-hunter\cv.pdf
 search_keywords:
-- summer internship 2026 computer science
-- software engineer intern summer 2026
-- AI internship summer 2026
-- data science intern summer 2026
+- LLM
+- Python
+- FastAPI
+- Docker
+- Playwright
+- scikit-learn
+- Prompt Engineering
+- Multi-Agent
+- AI Engineering
+- LLM Applications
+- AI Product Development
+- Machine Learning
+- NLP
+- Vibe Coding
+- AI Engineering Intern
+- LLM Intern
+- Machine Learning Intern
+- AI Product Development Intern
+- Software Engineering Intern
+- Data Science Intern
+- ai intern
+- it intern
+- summer intern
+- it summer intern
+- summer it intern
 scrapers:
   linkedin: true
   jobsdb: true

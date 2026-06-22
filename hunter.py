@@ -645,10 +645,10 @@ def main():
         format="%(asctime)s  %(levelname)-7s  %(message)s",
         handlers=[logging.StreamHandler()],
     )
-    # Force line buffering + ensure handler terminator is \n
+    # Force UTF-8 + line buffering + ensure handler terminator is \n
     import sys
-    sys.stdout.reconfigure(line_buffering=True)
-    sys.stderr.reconfigure(line_buffering=True)
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
+    sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
     for h in logging.root.handlers:
         h.terminator = "\n"
 

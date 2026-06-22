@@ -1,9 +1,8 @@
 """
 linkedin_login.py — Interactive LinkedIn manual login helper.
 
-Launches a HEADED Playwright browser, waits for the user to manually
-log in (including solving Cloudflare challenges), then saves cookies
-after user confirms by pressing Enter.
+Launches a HEADED Chrome browser (system install, not Playwright bundled),
+waits for the user to manually log in, then saves cookies after confirmation.
 
 Usage:
     python linkedin_login.py
@@ -30,7 +29,7 @@ def main():
     print("=" * 60)
     print()
     print("  Instructions:")
-    print("  1. A browser window will open")
+    print("  1. Your system CHROME browser will open")
     print("  2. Manually log in to LinkedIn")
     print("  3. Complete any Cloudflare challenges if prompted")
     print("  4. After successful login, come back to this terminal")
@@ -40,60 +39,93 @@ def main():
     print()
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)   # HEADED — you can see the window
+        # Use launch() (NOT launch_persistent_context) because we need
+        # ignore_default_args to strip --no-sandbox / --enable-automation
+        # which Google OAuth and security systems detect.
+        browser = pw.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-infobars",
+            ],
+            ignore_default_args=["--enable-automation", "--no-sandbox"],
+        )
         ctx = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
             viewport={"width": 1280, "height": 900},
             locale="en-US",
+            timezone_id="Asia/Hong_Kong",
         )
         page = ctx.new_page()
 
-        # Stealth JS (same as BaseScraper)
+        # Add stealth init script (replaces the args approach)
         page.add_init_script("""
             () => {
                 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
                 Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
                 Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
+                delete navigator.__proto__.webdriver;
             }
         """)
 
-        # Go to LinkedIn login page
-        # Note: networkidle will time out because LinkedIn has persistent analytics/ws connections
-        page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30_000)
-        print(f"  [Opened] Browser opened: {page.url}")
-
-        # Google/Apple/Microsoft login buttons are loaded inside async iframes.
-        # Wait up to 15s for the Google sign-in iframe to appear.
-        google_loaded = False
+        # Navigate to LinkedIn login with explicit error handling
+        print("  [Opening] Navigating to LinkedIn login page...")
         try:
-            page.wait_for_selector(
-                'iframe[src*="accounts.google.com"], div#credential_picker_container iframe',
-                timeout=15_000
-            )
-            google_loaded = True
-            print("  [OK] Google sign-in button detected")
-        except Exception:
-            log.warning("Google sign-in iframe did not appear within 15s")
-            print("  [Note] Google sign-in button not detected (iframe may be slow/blocked)")
+            page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=30_000)
+            print(f"  [OK] Page opened: {page.url}")
+        except Exception as e:
+            print(f"  [ERROR] Navigation failed: {e}")
+            print(f"  Current URL: {page.url}")
+            input("  Press Enter to close browser and exit...")
+            browser.close()
+            return
 
-        # Extra wait for other social buttons (Apple, Microsoft)
-        time.sleep(3)
+        # Wait for login form to be ready
+        try:
+            page.wait_for_selector('input[name="session_key"], input[type="email"], input[type="text"]', timeout=15_000)
+            print("  [OK] Login form loaded!")
+        except Exception:
+            print("  [Warning] Login form not detected yet (page may still be loading)")
+
+        # Scroll down to find social login buttons (they might be below the fold)
+        print("  [Scrolling] Checking if social login buttons are below the fold...")
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+        time.sleep(2)
+
+        # Check what login options are available
+        page_text = page.content().lower()
+        has_google = "google" in page_text and ("sign in" in page_text or "continue" in page_text)
+        has_apple = "apple" in page_text and ("sign in" in page_text or "continue" in page_text)
+
+        print()
+        if has_google or has_apple:
+            print("  [OK] Social login buttons detected!")
+            if has_google:
+                print("       → You can click 'Sign in with Google'")
+                print("       ⚠️  NOTE: Google may block automated browsers.")
+                print("          If Google rejects you, use EMAIL + PASSWORD below.")
+            if has_apple:
+                print("       → 'Sign in with Apple' should work")
+            print()
+        else:
+            print("  [Note] Social login buttons (Google/Apple) not detected.")
+            print("       This is normal — LinkedIn may hide them for fresh profiles.")
+        print()
+        print("  👉 RECOMMENDED: Log in with EMAIL + PASSWORD:")
+        print("     1. Enter your email address")
+        print("     2. Click 'Next'")
+        print("     3. Enter your password")
+        print("     4. Complete any verification if asked")
+        print("     After logging in once, cookies are saved for future use!")
         print()
         print("  >>> Please log in to LinkedIn in the browser window <<<")
-        if not google_loaded:
-            print("  Google login button may not be visible — use email+password instead")
-        print("  Social login buttons (Google/Apple/Microsoft) are BELOW the email form")
         print()
         print("  " + "-" * 56)
 
         # Wait for user to press Enter
         input("  Press Enter after you have logged in... ")
 
-        # Verify login was successful — navigate to feed to confirm
+        # Verify login was successful
         print()
         print("  Verifying login status (navigating to feed)...")
         try:
@@ -105,12 +137,10 @@ def main():
         current_url = page.url
         log.info(f"URL after verification: {current_url}")
 
-        # Check if still on login page (not logged in)
         if "/login" in current_url or "/checkpoint" in current_url or "/authwall" in current_url:
             print()
             print("  [Warning] You are NOT logged in.")
             print(f"  Current URL: {current_url}")
-            print("  Please make sure you logged in in the PLAYWRIGHT browser window.")
             confirm = input("  Save cookies anyway? (y/n): ")
             if confirm.strip().lower() != "y":
                 print("  Aborted. Cookies NOT saved.")
@@ -119,7 +149,6 @@ def main():
         else:
             print(f"  [OK] Logged in! URL: {current_url}")
 
-        # Give a moment for session cookies to settle
         print("  Waiting 5 seconds for cookies to settle...\n")
         time.sleep(5)
 

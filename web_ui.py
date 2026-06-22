@@ -95,6 +95,7 @@ _pipeline_log_thread: Optional[threading.Thread] = None
 _pipeline_running = False
 _linkedin_login_proc: Optional[subprocess.Popen] = None
 _polyu_login_proc: Optional[subprocess.Popen] = None
+_indeed_login_proc: Optional[subprocess.Popen] = None
 _sses: List[asyncio.Queue] = []
 _jobs_cache: Optional[List[dict]] = None
 _history_cache: Optional[List[dict]] = None
@@ -999,6 +1000,29 @@ async def api_polyu_login():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/indeed-login")
+async def api_indeed_login():
+    """Launch indeed_login.py in a NEW terminal window (so user can see browser + prompts)."""
+    global _indeed_login_proc
+    if _indeed_login_proc and _indeed_login_proc.poll() is None:
+        return JSONResponse({"success": True, "status": "already_running"})
+    _indeed_login_proc = None
+    login_script = str(BASE_DIR / "indeed_login.py")
+    try:
+        py = sys.executable
+        cmd = f'start "Indeed Login" cmd /k ""{py}" "{login_script}""'
+        _indeed_login_proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            cwd=str(BASE_DIR),
+        )
+        log.info(f"Indeed login script started (new window)")
+        return JSONResponse({"success": True})
+    except Exception as e:
+        log.exception("Failed to start Indeed login script")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/api/cl/update/{job_id}")
 async def api_update_cl(job_id: int, content: str = Form("")):
     try:
@@ -1310,8 +1334,6 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <button class="btn btn-outline" onclick="generateKeywords(this)" title="Generate keywords from CV">🪄 CV Keywords</button>
       <button class="btn btn-outline" onclick="document.getElementById('cvFileInput').click()" title="Upload your CV PDF">📄 Upload CV</button>
       <input type="file" id="cvFileInput" accept=".pdf" style="display:none" onchange="uploadCV(this)">
-      <button class="btn btn-outline" onclick="linkedinLogin()" title="Open browser to manually log in to LinkedIn (press Enter in terminal to save cookies)">🔐 LinkedIn Login</button>
-      <button class="btn btn-outline" onclick="polyuLogin()" title="Open browser to manually log in to PolyU Job Board (saves cookies)">🏫 PolyU Login</button>
     </div>
   </div>
 
@@ -1337,6 +1359,7 @@ select.input-sm { min-width:200px; cursor:pointer; }
       <div class="settings-tab" onclick="switchSettingsTab('cv')">📄 CV</div>
       <div class="settings-tab" onclick="switchSettingsTab('platform')">🔍 Platform Filters</div>
       <div class="settings-tab" onclick="switchSettingsTab('advanced')">🔧 Advanced</div>
+      <div class="settings-tab" onclick="switchSettingsTab('login')">🔐 Login</div>
     </div>
 
     <!-- Tab: Email -->
@@ -1616,6 +1639,27 @@ select.input-sm { min-width:200px; cursor:pointer; }
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">config.yaml (raw editor)</label>
         <textarea id="yamlEditor" rows="14" placeholder="cv_pdf_path: ..."></textarea>
         <div class="form-hint">Advanced: edit raw config.yaml. For scraper toggles, WIE filter, etc.</div>
+      </div>
+    </div>
+
+    <!-- Tab: Login -->
+    <div class="settings-panel" id="settingsPanel-login">
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+        <button class="btn btn-outline" onclick="linkedinLogin()" style="font-size:14px;padding:14px 18px;width:100%;text-align:left;display:flex;align-items:center;gap:10px">
+          <span style="font-size:18px">🔐</span>
+          <span>LinkedIn Login</span>
+        </button>
+        <button class="btn btn-outline" onclick="polyuLogin()" style="font-size:14px;padding:14px 18px;width:100%;text-align:left;display:flex;align-items:center;gap:10px">
+          <span style="font-size:18px">🏫</span>
+          <span>PolyU Login</span>
+        </button>
+        <button class="btn btn-outline" onclick="indeedLogin()" style="font-size:14px;padding:14px 18px;width:100%;text-align:left;display:flex;align-items:center;gap:10px">
+          <span style="font-size:18px">🔍</span>
+          <span>Indeed Login</span>
+        </button>
+      </div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.5;padding:0 4px">
+        Opens a Chrome browser for manual login. After logging in, cookies are saved automatically (LinkedIn: press Enter in terminal to save).
       </div>
     </div>
 
@@ -2262,12 +2306,12 @@ async function generateKeywords(btn) {
 }
 
 async function linkedinLogin() {
-  toast("Opening browser for LinkedIn login...", "success");
+  toast("Opening LinkedIn browser...", "success");
   try {
     const res = await fetch("/api/linkedin-login", { method: "POST" });
     const data = await res.json();
     if (res.ok) {
-      toast("Browser opening! Please log in to LinkedIn, then press Enter in the terminal to save cookies.", "success");
+      toast("Browser opened! Press Enter in terminal after login.", "success");
     } else {
       toast("Error: " + (data.error || "Failed to launch browser"), "error");
     }
@@ -2275,12 +2319,25 @@ async function linkedinLogin() {
 }
 
 async function polyuLogin() {
-  toast("Opening browser for PolyU login...", "success");
+  toast("Opening PolyU browser...", "success");
   try {
     const res = await fetch("/api/polyu-login", { method: "POST" });
     const data = await res.json();
     if (res.ok) {
-      toast("Browser opened! Please log in to PolyU manually and accept T&C. Cookies auto-saved after login.", "success");
+      toast("Browser opened! Cookies auto-saved after login.", "success");
+    } else {
+      toast("Error: " + (data.error || "Failed to launch browser"), "error");
+    }
+  } catch(e) { toast("Error: " + e.message, "error"); }
+}
+
+async function indeedLogin() {
+  toast("Opening Indeed browser...", "success");
+  try {
+    const res = await fetch("/api/indeed-login", { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      toast("Browser opened! Cookies auto-saved after login.", "success");
     } else {
       toast("Error: " + (data.error || "Failed to launch browser"), "error");
     }

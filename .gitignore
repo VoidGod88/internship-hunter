@@ -53,3 +53,4 @@ cv_profile.json
 
 # Debug scripts (local only)
 debug_*.py
+debug_*.png
