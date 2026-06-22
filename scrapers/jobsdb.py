@@ -64,7 +64,7 @@ def _go_to_next_page(page) -> bool:
         )
         if next_btn and next_btn.is_enabled():
             next_btn.click()
-            page.wait_for_timeout(3000)
+            page.wait_for_load_state("domcontentloaded")
             return True
     except Exception:
         pass
@@ -160,7 +160,7 @@ def scrape_jobsdb(page, keywords: list[str], max_pages: int = 0, max_jobs: int =
         kw_jobs = _scrape_jobsdb_keyword(page, kw, scrape_url, max_pages=0, max_jobs=0)
         all_jobs.extend(kw_jobs)
         log.info(f"[JobsDB] {kw} → {len(kw_jobs)} jobs")
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(1, 2))
 
     # Deduplicate by (title, company)
     seen = set()
@@ -189,7 +189,7 @@ def _scrape_jobsdb_keyword(page, kw: str, base_url: str, max_pages: int = 0, max
         try:
             log.info(f"[JobsDB]   Fetching page {page_num + 1}: {url}")
             page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(1500)
 
             cards = _query_selector_all_multi(page, CARD_SELECTORS)
             if not cards:
@@ -249,7 +249,7 @@ def _scrape_jobsdb_keyword(page, kw: str, base_url: str, max_pages: int = 0, max
                 break
 
             page_num += 1
-            time.sleep(random.uniform(2, 4))
+            time.sleep(random.uniform(0.5, 1))
 
         except Exception:
             break
