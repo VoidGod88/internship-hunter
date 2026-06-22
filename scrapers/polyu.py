@@ -463,6 +463,11 @@ def _extract_all_pages(page, kw: str) -> list:
 
         log.info(f"[PolyU]   Page {current_page}: {len(items)} cards → +{new_count} new ({len(all_items)} total)")
 
+        # Stop if this page yielded 0 new items (no more pages)
+        if new_count == 0:
+            log.info(f"[PolyU]   No new cards on page {current_page}, stopping.")
+            break
+
         # Try to go to next page
         if not _radix_goto_next_page(page):
             break
